@@ -1,0 +1,146 @@
+[
+  {
+    "code": "AC-01",
+    "category": "Access Control",
+    "title": "Timely Access Revocation on Offboarding",
+    "description": "All access to company systems, applications, and shared accounts is revoked within 24 hours of an employee's or contractor's departure.",
+    "evidence_guidance": "Provide the offboarding checklist or ticket for each departure in the period, showing the termination date and the timestamp of access removal in each system (SSO/IdP, email, code repos, cloud console, production databases). A deprovisioning log or IdP audit export covering the same users is acceptable supporting evidence.",
+    "refresh_interval_days": 90
+  },
+  {
+    "code": "AC-02",
+    "category": "Access Control",
+    "title": "Least-Privilege Access Provisioning",
+    "description": "New joiners and role changers are granted only the access their role requires. Access is assigned from defined role profiles rather than broad or default-to-all permissions.",
+    "evidence_guidance": "Provide the documented role-to-permission mapping plus a sample of onboarding/access-request tickets showing the role requested, the approver, and the permissions actually granted. Include a current permission export from a key system to demonstrate the granted access matches the role profile.",
+    "refresh_interval_days": 90
+  },
+  {
+    "code": "AC-03",
+    "category": "Access Control",
+    "title": "Quarterly Privileged Access Review",
+    "description": "Administrator and other privileged access is formally reviewed at least every 90 days to confirm each account is still required and appropriately scoped. Access no longer needed is removed.",
+    "evidence_guidance": "Provide the completed access review for the period: the list of privileged accounts reviewed, the reviewer's name and sign-off date, the decision recorded for each account, and evidence that any revocations identified were actioned (ticket or system log showing removal).",
+    "refresh_interval_days": 90
+  },
+  {
+    "code": "AC-04",
+    "category": "Access Control",
+    "title": "Multi-Factor Authentication Enforced",
+    "description": "Authentication to company systems requires a password plus a second factor. MFA is enforced by policy rather than left to individual users to enable.",
+    "evidence_guidance": "Provide the identity provider configuration showing the MFA enforcement policy and its scope, plus a user-level report showing MFA enrolment status across all active accounts. Document and justify any exceptions (e.g. service accounts) along with their compensating controls.",
+    "refresh_interval_days": 180
+  },
+  {
+    "code": "AC-05",
+    "category": "Access Control",
+    "title": "Password Strength and Reuse Policy",
+    "description": "A password policy is technically enforced, setting a minimum length and preventing reuse of previous passwords.",
+    "evidence_guidance": "Provide a screenshot or configuration export of the enforced password policy from the identity provider or directory service, showing minimum length and password history/reuse settings. Include the written password standard the configuration implements.",
+    "refresh_interval_days": 180
+  },
+  {
+    "code": "CM-01",
+    "category": "Change Management",
+    "title": "Peer Review of Code Changes",
+    "description": "Code changes are reviewed and approved by someone other than the author before being merged and released to production.",
+    "evidence_guidance": "Provide the branch protection or merge-approval settings for production branches showing required reviewers, plus a sample of merged pull requests from the period showing the reviewer differed from the author and approval preceded the merge. Note and explain any emergency bypasses.",
+    "refresh_interval_days": 90
+  },
+  {
+    "code": "CM-02",
+    "category": "Change Management",
+    "title": "Production Change Logging",
+    "description": "Changes to production systems are recorded with the change made, who made it, and when, producing an auditable history.",
+    "evidence_guidance": "Provide a deployment or change log covering the period showing timestamp, actor, and change reference for each production change. Include infrastructure changes as well as application releases, and show that the log is retained and not editable by the person making the change.",
+    "refresh_interval_days": 90
+  },
+  {
+    "code": "CM-03",
+    "category": "Change Management",
+    "title": "Documented Rollback Procedure",
+    "description": "A documented procedure exists for reversing a faulty deployment, covering who can authorise a rollback, the steps to perform it, and how data changes are handled.",
+    "evidence_guidance": "Provide the rollback runbook, including its last-reviewed date and owner. Where a rollback occurred during the period, provide the incident or deployment record showing the procedure was followed and the outcome.",
+    "refresh_interval_days": 365
+  },
+  {
+    "code": "IR-01",
+    "category": "Incident Response",
+    "title": "Documented Security Incident Response Plan",
+    "description": "A written plan defines how security incidents are detected, triaged, escalated, contained, and communicated, including roles and notification obligations.",
+    "evidence_guidance": "Provide the current incident response plan showing version, owner, and approval or last-review date. Include the severity definitions and the internal and external notification paths (customers, regulators, insurers) the plan requires.",
+    "refresh_interval_days": 365
+  },
+  {
+    "code": "IR-02",
+    "category": "Incident Response",
+    "title": "Incident Register and Resolution Records",
+    "description": "Security incidents are recorded in a central register capturing what happened, the impact, actions taken, and how the incident was resolved.",
+    "evidence_guidance": "Provide the incident register for the period, including detection and closure dates, severity, affected systems or data, remediation actions, and root-cause or post-incident review notes. If no incidents occurred, provide a nil return confirmed by the incident owner.",
+    "refresh_interval_days": 90
+  },
+  {
+    "code": "IR-03",
+    "category": "Incident Response",
+    "title": "First-Hour Response Readiness",
+    "description": "Staff know who to contact and what immediate steps to take within the first hour of a suspected security incident, including out-of-hours escalation.",
+    "evidence_guidance": "Provide the first-hour response checklist or on-call escalation card together with evidence it has been distributed to the team, and the current on-call or escalation contact list. Records from a tabletop exercise or drill covering the first-hour steps strengthen this evidence.",
+    "refresh_interval_days": 180
+  },
+  {
+    "code": "BC-01",
+    "category": "Business Continuity",
+    "title": "Backups Performed and Restore-Tested",
+    "description": "Backups of production data run on a defined schedule, and restores are periodically tested to confirm the backups are usable.",
+    "evidence_guidance": "Provide the backup configuration showing scope, frequency, and retention, plus job history for the period showing successful runs and how failures were handled. Include the most recent restore test record with the date, what was restored, who performed it, and the verified outcome.",
+    "refresh_interval_days": 90
+  },
+  {
+    "code": "DP-01",
+    "category": "Data Protection",
+    "title": "Encryption at Rest and in Transit",
+    "description": "Customer and company data is encrypted while stored and while transmitted across networks, using current, supported algorithms and protocols.",
+    "evidence_guidance": "Provide configuration evidence of encryption at rest for databases, object storage, and backups, and evidence of enforced TLS for external endpoints (for example a TLS configuration scan and the certificate inventory). Note the protocol versions in use and any exceptions with their remediation plan.",
+    "refresh_interval_days": 180
+  },
+  {
+    "code": "VM-01",
+    "category": "Vendor Management",
+    "title": "Data Protection Agreements with Vendors",
+    "description": "Every third party that processes, stores, or can access customer data has signed a data protection agreement before receiving access.",
+    "evidence_guidance": "Provide the vendor inventory flagging which vendors handle customer data, and the executed DPA or equivalent contractual clauses for each, showing signature dates. Confirm the DPA was in place before data access was granted for any vendor onboarded during the period.",
+    "refresh_interval_days": 365
+  },
+  {
+    "code": "VM-02",
+    "category": "Vendor Management",
+    "title": "Annual Vendor Security Review",
+    "description": "Vendors handling customer data are reviewed at least annually to confirm they continue to meet security requirements, with issues tracked to closure.",
+    "evidence_guidance": "Provide the completed vendor reviews for the period, including the review date, reviewer, evidence assessed (certifications, audit reports, questionnaires), the conclusion reached, and any follow-up actions with their status.",
+    "refresh_interval_days": 365
+  },
+  {
+    "code": "DR-01",
+    "category": "Data Retention",
+    "title": "Deletion or Anonymisation of Data No Longer Needed",
+    "description": "Customer data is deleted or anonymised once it is no longer required for the purpose it was collected for or for a legal obligation, including in backups and downstream systems.",
+    "evidence_guidance": "Provide evidence of deletion or anonymisation runs during the period: job logs, tickets, or a suppression report showing the records affected and the date. Include a sample deletion request fulfilled end to end, and describe how the retention rule is applied to backups and analytics copies.",
+    "refresh_interval_days": 180
+  },
+  {
+    "code": "DR-02",
+    "category": "Data Retention",
+    "title": "Documented Data Retention Policy",
+    "description": "A written policy defines how long each type of data is kept, the legal or business basis for that period, and what happens at the end of it.",
+    "evidence_guidance": "Provide the current retention policy or schedule listing data types, retention periods, justification, and disposal method, along with the owner and last-approved date. Where systems enforce retention automatically, include the configuration showing periods match the policy.",
+    "refresh_interval_days": 365
+  },
+  {
+    "code": "HR-01",
+    "category": "People Security",
+    "title": "Security Awareness Training at Onboarding",
+    "description": "New employees complete baseline security awareness training as part of joining, covering topics such as phishing, password and device hygiene, data handling, and incident reporting.",
+    "evidence_guidance": "Provide the training content or module outline plus completion records for all joiners in the period, showing name, start date, and completion date. Include evidence of follow-up for anyone who has not completed the training within the required window.",
+    "refresh_interval_days": 365
+  }
+]
