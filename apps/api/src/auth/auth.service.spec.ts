@@ -12,6 +12,8 @@ describe('AuthService', () => {
       user: { findUnique: jest.fn() },
       tenant: { findUnique: jest.fn(), create: jest.fn() },
       membership: { create: jest.fn() },
+      control: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      auditEvent: { create: jest.fn().mockResolvedValue(undefined) },
       $queryRaw: jest.fn().mockResolvedValue([{ exists: false }]),
       $executeRaw: jest.fn().mockResolvedValue(undefined),
       $transaction: jest.fn((fn: any) => fn(prisma)),
@@ -24,7 +26,27 @@ describe('AuthService', () => {
       get: jest.fn((key: string) => store.get(key)),
       set: jest.fn((key: string, value: unknown) => store.set(key, value)),
     } as any;
-    return { service: new AuthService(prisma, jwt, cls), prisma, jwt, cls, tenantTx, store };
+    const seedControls = {
+      getControls: jest.fn().mockReturnValue([
+        {
+          code: 'AC-01',
+          category: 'Access Control',
+          title: 'Seed Control',
+          description: 'd',
+          evidence_guidance: 'g',
+          refresh_interval_days: 90,
+        },
+      ]),
+    } as any;
+    return {
+      service: new AuthService(prisma, jwt, cls, seedControls),
+      prisma,
+      jwt,
+      cls,
+      tenantTx,
+      store,
+      seedControls,
+    };
   };
 
   describe('signup', () => {
@@ -56,6 +78,55 @@ describe('AuthService', () => {
       // can't reject it before its Membership exists.
       expect(prisma.user.create).toBeUndefined();
       expect(result).toEqual({ accessToken: 'signed-token' });
+    });
+
+    it('seeds the tenant with every control from SeedControlsService', async () => {
+      const { service, prisma } = buildService();
+      prisma.tenant.findUnique.mockResolvedValue(null);
+      prisma.tenant.create.mockResolvedValue({ id: 'tenant-1' });
+
+      await service.signup({
+        email: 'a@acme.com',
+        password: 'password123',
+        name: 'Ada',
+        tenantName: 'Acme Inc',
+        tenantSlug: 'acme',
+      } as any);
+
+      const createdTenant = prisma.tenant.create.mock.calls[0][0].data;
+      const seeded = prisma.control.createMany.mock.calls[0][0].data;
+      expect(seeded).toHaveLength(1);
+      expect(seeded[0]).toMatchObject({
+        tenantId: createdTenant.id,
+        code: 'AC-01',
+        category: 'Access Control',
+        evidenceGuidance: 'g',
+        refreshIntervalDays: 90,
+      });
+    });
+
+    it('writes its own audit.signup event, since the generic interceptor has no tenant context to use yet', async () => {
+      const { service, prisma } = buildService();
+      prisma.tenant.findUnique.mockResolvedValue(null);
+      prisma.tenant.create.mockResolvedValue({ id: 'tenant-1' });
+
+      await service.signup({
+        email: 'a@acme.com',
+        password: 'password123',
+        name: 'Ada',
+        tenantName: 'Acme Inc',
+        tenantSlug: 'acme',
+      } as any);
+
+      const createdTenant = prisma.tenant.create.mock.calls[0][0].data;
+      const auditData = prisma.auditEvent.create.mock.calls[0][0].data;
+      expect(auditData).toMatchObject({
+        tenantId: createdTenant.id,
+        action: 'auth.signup',
+        targetType: 'Tenant',
+        targetId: createdTenant.id,
+        statusCode: 201,
+      });
     });
 
     it('checks email uniqueness through the SECURITY DEFINER helper, not a direct read', async () => {
@@ -114,6 +185,20 @@ describe('AuthService', () => {
       } as any);
 
       expect(result).toEqual({ accessToken: 'signed-token' });
+    });
+
+    it('records the logged-in user in cls, since login never runs through JwtAuthGuard', async () => {
+      const { service, tenantTx, cls } = buildService();
+      const passwordHash = await bcrypt.hash('password123', 10);
+      tenantTx.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@acme.com',
+        passwordHash,
+      });
+
+      await service.login({ email: 'a@acme.com', password: 'password123' } as any);
+
+      expect(cls.set).toHaveBeenCalledWith('userId', 'user-1');
     });
 
     it('looks the user up through the tenant transaction, so RLS scopes it to this workspace', async () => {

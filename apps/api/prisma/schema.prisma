@@ -9,7 +9,8 @@ datasource db {
 enum Role {
   OWNER
   ADMIN
-  MEMBER
+  CONTRIBUTOR
+  AUDITOR
 }
 
 enum EvidenceStatus {
@@ -34,6 +35,7 @@ model Tenant {
   controls    Control[]
   evidence    Evidence[]
   tasks       Task[]
+  auditEvents AuditEvent[]
 }
 
 model User {
@@ -46,6 +48,7 @@ model User {
   memberships  Membership[]
   evidence     Evidence[]   @relation("EvidenceUploadedBy")
   tasks        Task[]       @relation("TaskAssignee")
+  auditEvents  AuditEvent[] @relation("AuditActor")
 }
 
 model Membership {
@@ -86,7 +89,14 @@ model Evidence {
   controlId    String
   uploadedById String
   notes        String?
-  fileUrl      String?
+  // Object-storage key within the tenant-scoped "uploads" bucket prefix
+  // (see ObjectStorageService) — never a public URL, since the bucket is
+  // private and every download goes through a short-lived presigned URL
+  // generated on request.
+  fileKey      String
+  fileName     String
+  fileSize     Int
+  mimeType     String
   status       EvidenceStatus @default(PENDING)
   collectedAt  DateTime       @default(now())
   createdAt    DateTime       @default(now())
@@ -95,7 +105,10 @@ model Evidence {
   control      Control        @relation(fields: [controlId], references: [id], onDelete: Cascade)
   uploadedBy   User           @relation("EvidenceUploadedBy", fields: [uploadedById], references: [id])
 
-  @@index([tenantId, controlId])
+  // Leading (tenantId, controlId) supports the per-tenant evidence list;
+  // trailing collectedAt supports "most recent evidence per control",
+  // which is how ControlsService computes each control's status.
+  @@index([tenantId, controlId, collectedAt])
   @@index([tenantId, status])
 }
 
@@ -116,4 +129,30 @@ model Task {
 
   @@index([tenantId, status])
   @@index([tenantId, assigneeId])
+}
+
+model AuditEvent {
+  id          String   @id @default(uuid())
+  tenantId    String
+  // Nullable: signup's audit row is written before the actor's own
+  // membership exists in the usual sense, and a future system-initiated
+  // action (a scheduled job, not a user request) would have no actor.
+  actorUserId String?
+  // Dot-namespaced label, e.g. "evidence.upload", "task.create",
+  // "auth.login" — see AuditInterceptor / the @Audit() decorator.
+  action      String
+  targetType  String
+  targetId    String?
+  // { field: { before, after } } for the fields that changed; null for
+  // actions with no natural before/after (e.g. auth.login).
+  diff        Json?
+  method      String
+  path        String
+  statusCode  Int
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, targetType, targetId])
 }

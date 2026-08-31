@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard' },
+  // Evidence is uploaded/viewed from a control's own page (it's always
+  // scoped to one control), not a standalone list — no separate nav entry.
   { href: '/controls', label: 'Controls' },
-  { href: '/evidence', label: 'Evidence' },
   { href: '/tasks', label: 'Tasks' },
   { href: '/settings', label: 'Settings' },
 ];

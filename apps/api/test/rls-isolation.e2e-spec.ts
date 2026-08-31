@@ -120,6 +120,10 @@ describe('RLS tenant isolation (e2e)', () => {
           controlId: controlA1.id,
           uploadedById: userA.id,
           notes: 'Tenant A evidence',
+          fileKey: `${tenantA.id}/${controlA1.id}/fixture-a.txt`,
+          fileName: 'fixture-a.txt',
+          fileSize: 1,
+          mimeType: 'text/plain',
         },
       }),
     );
@@ -130,6 +134,10 @@ describe('RLS tenant isolation (e2e)', () => {
           controlId: controlB1.id,
           uploadedById: userB.id,
           notes: 'Tenant B evidence',
+          fileKey: `${tenantB.id}/${controlB1.id}/fixture-b.txt`,
+          fileName: 'fixture-b.txt',
+          fileSize: 1,
+          mimeType: 'text/plain',
         },
       }),
     );

@@ -6,6 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppClsStore } from '../common/cls-keys';
 import { setTenantContext } from '../common/set-tenant-context';
+import { SeedControlsService } from '../controls/seed-controls.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -30,6 +31,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly cls: ClsService<AppClsStore>,
+    private readonly seedControls: SeedControlsService,
   ) {}
 
   async signup(dto: SignupDto): Promise<{ accessToken: string }> {
@@ -83,6 +85,42 @@ export class AuthService {
         await tx.membership.create({
           data: { tenantId, userId, role: 'OWNER' },
         });
+
+        // createMany issues a plain multi-row INSERT with no RETURNING,
+        // so — unlike tx.user.create() above — there's no SELECT-policy
+        // interaction to work around here even though these rows have no
+        // reader-relevant state yet; it's just the efficient way to
+        // insert 18 rows at once.
+        await tx.control.createMany({
+          data: this.seedControls.getControls().map((seed) => ({
+            tenantId,
+            code: seed.code,
+            category: seed.category,
+            title: seed.title,
+            description: seed.description,
+            evidenceGuidance: seed.evidence_guidance,
+            refreshIntervalDays: seed.refresh_interval_days,
+          })),
+        });
+
+        // The audit interceptor can't cover this request: it only writes
+        // through cls.tenantTx, which TenantTransactionMiddleware only
+        // opens when a tenant was already resolved *before* the request
+        // started — not true here, since this transaction is what creates
+        // the tenant. Recorded directly, in the same transaction, once
+        // the tenant it belongs to exists.
+        await tx.auditEvent.create({
+          data: {
+            tenantId,
+            actorUserId: userId,
+            action: 'auth.signup',
+            targetType: 'Tenant',
+            targetId: tenantId,
+            method: 'POST',
+            path: '/auth/signup',
+            statusCode: 201,
+          },
+        });
       });
     } catch (err) {
       // The check above is advisory: two concurrent signups for the same
@@ -117,6 +155,11 @@ export class AuthService {
     if (!passwordMatches) {
       throw new UnauthorizedException('Invalid email or password');
     }
+    // Login never goes through JwtAuthGuard (there's no token yet), so
+    // nothing else would populate cls.userId — set it here so the audit
+    // interceptor's generic auth.login entry records who logged in rather
+    // than an anonymous actor.
+    this.cls.set('userId', user.id);
     return { accessToken: this.jwt.sign({ sub: user.id }) };
   }
 }

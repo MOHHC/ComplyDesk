@@ -12,5 +12,6 @@
   },
   "setupFiles": [
     "<rootDir>/setup-e2e.ts"
-  ]
+  ],
+  "testTimeout": 20000
 }

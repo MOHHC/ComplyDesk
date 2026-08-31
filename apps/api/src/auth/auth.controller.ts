@@ -5,6 +5,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { AppClsStore } from '../common/cls-keys';
+import { Audit } from '../audit/audit.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -19,6 +20,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Audit({ action: 'auth.login' })
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
   }
