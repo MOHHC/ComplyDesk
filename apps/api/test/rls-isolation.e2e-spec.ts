@@ -255,6 +255,42 @@ describe('RLS tenant isolation (e2e)', () => {
     });
   });
 
+  describe('Membership', () => {
+    it('cannot be read across tenants — the table JwtAuthGuard authorizes against', async () => {
+      // Membership is the one RLS-protected table the auth path itself
+      // queries, so a leak here would be an authorization bug, not just
+      // a data-visibility one.
+      const asA = await asTenant(tenantA.id, (tx) => tx.membership.findMany());
+      expect(asA.map((m: { userId: string }) => m.userId)).toEqual([userA.id]);
+
+      const bMembership = await owner.membership.findFirst({
+        where: { tenantId: tenantB.id },
+      });
+      const stolen = await asTenant(tenantA.id, (tx) =>
+        tx.membership.findUnique({ where: { id: bMembership!.id } }),
+      );
+      expect(stolen).toBeNull();
+    });
+
+    it('cannot be granted to yourself in another tenant (WITH CHECK on INSERT)', async () => {
+      // The privilege-escalation shape: under Tenant A's context, try to
+      // insert a membership row that claims Tenant B. WITH CHECK must
+      // reject the row outright rather than write it.
+      await expect(
+        asTenant(tenantA.id, (tx) =>
+          tx.membership.create({
+            data: { tenantId: tenantB.id, userId: userA.id, role: 'OWNER' },
+          }),
+        ),
+      ).rejects.toThrow();
+
+      const leaked = await owner.membership.findFirst({
+        where: { tenantId: tenantB.id, userId: userA.id },
+      });
+      expect(leaked).toBeNull();
+    });
+  });
+
   describe('no tenant context set at all', () => {
     it('throws rather than silently returning rows or an empty result', async () => {
       await expect(
@@ -263,6 +299,22 @@ describe('RLS tenant isolation (e2e)', () => {
           timeout: 15000,
         }),
       ).rejects.toThrow();
+    });
+
+    it('throws when app.tenant_id is present but empty — the pooled-connection case', async () => {
+      // On a connection that already served a request, app.tenant_id
+      // still exists as a parameter and current_setting() returns '' now
+      // rather than throwing. The `::uuid` cast in the policy is what
+      // keeps that failing closed instead of quietly matching no rows.
+      await expect(
+        runtime.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT set_config('app.tenant_id', '', true)`;
+            return tx.control.findMany();
+          },
+          { maxWait: 15000, timeout: 15000 },
+        ),
+      ).rejects.toThrow(/invalid input syntax for type uuid/);
     });
   });
 });

@@ -49,6 +49,18 @@ export class TenantTransactionMiddleware implements NestMiddleware {
                 resolve();
               }
             });
+            // A client that hangs up mid-request emits 'close' without
+            // ever emitting 'finish'. Without this, the promise would
+            // never settle and the transaction — along with its pooled
+            // connection — would be pinned until Prisma's timeout fired
+            // seconds later. Settling here rolls back immediately.
+            // 'close' also fires after a normal response, but 'finish'
+            // has already resolved by then, so this is a no-op.
+            res.once('close', () => {
+              if (!res.writableEnded) {
+                reject(new Error('Client disconnected before the response completed'));
+              }
+            });
             res.once('error', reject);
             next();
           });
@@ -57,10 +69,11 @@ export class TenantTransactionMiddleware implements NestMiddleware {
       );
     } catch (err) {
       // Prisma already rolled back the transaction at this point — that
-      // is what actually matters for tenant isolation. If the response
-      // hasn't gone out yet, this is a genuine unhandled error; if it
-      // has, there's nothing left to do but let it be logged upstream.
-      if (!res.headersSent) {
+      // is what actually matters for tenant isolation. Only surface the
+      // error if there's still a live response to surface it on: a
+      // response already sent has nowhere to put it, and a client that
+      // hung up has nobody listening.
+      if (!res.headersSent && !res.destroyed) {
         next(err as Error);
       }
     }
