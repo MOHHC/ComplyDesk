@@ -291,6 +291,102 @@ describe('RLS tenant isolation (e2e)', () => {
     });
   });
 
+  describe('User (SELECT-scoped via Membership, not a tenantId column)', () => {
+    it('only exposes users who are members of the current tenant', async () => {
+      const asA = await asTenant(tenantA.id, (tx) => tx.user.findMany());
+      expect(asA.map((u: { id: string }) => u.id)).toEqual([userA.id]);
+
+      const asB = await asTenant(tenantB.id, (tx) => tx.user.findMany());
+      expect(asB.map((u: { id: string }) => u.id)).toEqual([userB.id]);
+    });
+
+    it("hides another tenant's user even on a direct lookup by email", async () => {
+      const found = await asTenant(tenantA.id, (tx) =>
+        tx.user.findUnique({ where: { email: `rls-b-${suffix}@example.com` } }),
+      );
+      expect(found).toBeNull();
+    });
+
+    it("cannot update another tenant's user", async () => {
+      const result = await asTenant(tenantA.id, (tx) =>
+        tx.user.updateMany({ where: { id: userB.id }, data: { name: 'Renamed by A' } }),
+      );
+      expect(result.count).toBe(0);
+
+      const intact = await owner.user.findUnique({ where: { id: userB.id } });
+      expect(intact?.name).toBe('User B');
+    });
+
+    it('confines an unqualified bulk write to the calling tenant', async () => {
+      // The case the SELECT policy alone does *not* cover: an UPDATE with
+      // no WHERE clause reads no existing column values, so SELECT
+      // policies never come into play and only the UPDATE policy decides.
+      // With a permissive USING (true) this crossed tenants; the
+      // membership test is what confines it.
+      const result = await asTenant(tenantA.id, (tx) =>
+        tx.user.updateMany({ data: { name: 'Bulk renamed' } }),
+      );
+      expect(result.count).toBe(1);
+
+      const untouched = await owner.user.findUnique({ where: { id: userB.id } });
+      expect(untouched?.name).toBe('User B');
+
+      await owner.user.update({ where: { id: userA.id }, data: { name: 'User A' } });
+    });
+
+    it('still leaks email existence through the global unique index — a known limit of this design', async () => {
+      // Pinned on purpose. Unique indexes are enforced beneath RLS, so
+      // inserting a duplicate email raises a constraint violation whether
+      // or not the conflicting row is visible. If this test ever starts
+      // failing, the uniqueness model changed and the leak analysis in
+      // the rls_tenant_and_user migration needs revisiting.
+      await expect(
+        asTenant(tenantA.id, (tx) =>
+          tx.$executeRaw`
+            INSERT INTO "User" (id, email, "passwordHash", name, "createdAt", "updatedAt")
+            VALUES (gen_random_uuid(), ${`rls-b-${suffix}@example.com`}, 'h', 'probe', now(), now())
+          `,
+        ),
+      ).rejects.toThrow(/unique constraint|duplicate key/i);
+    });
+  });
+
+  describe('Tenant (readable for routing, writable only by itself)', () => {
+    it('is readable with no tenant context, since resolving a slug is what establishes context', async () => {
+      const found = await runtime.tenant.findUnique({
+        where: { slug: `rls-b-${suffix}` },
+      });
+      expect(found?.id).toBe(tenantB.id);
+    });
+
+    it("cannot be renamed by another tenant", async () => {
+      const result = await asTenant(tenantA.id, (tx) =>
+        tx.tenant.updateMany({ where: { id: tenantB.id }, data: { name: 'HIJACKED' } }),
+      );
+      expect(result.count).toBe(0);
+
+      const intact = await owner.tenant.findUnique({ where: { id: tenantB.id } });
+      expect(intact?.name).toBe('RLS Test Tenant B');
+    });
+
+    it('can rename itself (positive control)', async () => {
+      const result = await asTenant(tenantA.id, (tx) =>
+        tx.tenant.updateMany({ where: { id: tenantA.id }, data: { name: 'Renamed A' } }),
+      );
+      expect(result.count).toBe(1);
+    });
+
+    it("cannot be deleted by another tenant", async () => {
+      const result = await asTenant(tenantA.id, (tx) =>
+        tx.tenant.deleteMany({ where: { id: tenantB.id } }),
+      );
+      expect(result.count).toBe(0);
+
+      const survived = await owner.tenant.findUnique({ where: { id: tenantB.id } });
+      expect(survived).not.toBeNull();
+    });
+  });
+
   describe('no tenant context set at all', () => {
     it('throws rather than silently returning rows or an empty result', async () => {
       await expect(

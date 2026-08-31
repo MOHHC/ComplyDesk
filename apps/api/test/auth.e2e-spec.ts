@@ -1,15 +1,27 @@
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
-import { PrismaService } from '../src/prisma/prisma.service';
 
 describe('Auth (e2e)', () => {
   let app: INestApplication;
-  let prisma: PrismaService;
   const slug = `e2e-${randomUUID().slice(0, 8)}`;
   const email = `${slug}@example.com`;
+
+  /**
+   * Fixture teardown runs as the owner, not through the app's
+   * PrismaService. Deleting a Tenant is now RLS-scoped to
+   * current_setting('app.tenant_id'), which only exists inside a request's
+   * tenant transaction — so cleanup from outside a request has no context
+   * to run under. That's the policy working, not a problem to route
+   * around in application code.
+   */
+  const owner = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+  });
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -18,12 +30,12 @@ describe('Auth (e2e)', () => {
 
     app = moduleFixture.createNestApplication();
     await app.init();
-    prisma = app.get(PrismaService);
   });
 
   afterAll(async () => {
-    await prisma.tenant.deleteMany({ where: { slug } });
-    await prisma.user.deleteMany({ where: { email } });
+    await owner.tenant.deleteMany({ where: { slug } });
+    await owner.user.deleteMany({ where: { email } });
+    await owner.$disconnect();
     await app.close();
   });
 
@@ -84,8 +96,8 @@ describe('Auth (e2e)', () => {
       .set('Authorization', `Bearer ${signupRes.body.accessToken}`)
       .expect(403);
 
-    await prisma.tenant.deleteMany({ where: { slug: `notenant-${slug}` } });
-    await prisma.user.deleteMany({ where: { email: `notenant-${email}` } });
+    await owner.tenant.deleteMany({ where: { slug: `notenant-${slug}` } });
+    await owner.user.deleteMany({ where: { email: `notenant-${email}` } });
   });
 
   it('resolves the tenant via X-Tenant-Slug when the Host has no subdomain', async () => {
@@ -118,9 +130,47 @@ describe('Auth (e2e)', () => {
     expect(meRes.body.tenantId).toEqual(expect.any(String));
     expect(meRes.body.role).toBe('OWNER');
 
-    await prisma.tenant.deleteMany({ where: { slug: headerSlug } });
-    await prisma.user.deleteMany({ where: { email: headerEmail } });
+    await owner.tenant.deleteMany({ where: { slug: headerSlug } });
+    await owner.user.deleteMany({ where: { email: headerEmail } });
   }, 15000);
+
+  it('refuses login from a workspace the user has no membership in', async () => {
+    const server = app.getHttpServer();
+    const otherSlug = `other-${slug}`;
+
+    // A second, unrelated workspace. The user created in the first test
+    // belongs to `slug`, not to this one.
+    await request(server)
+      .post('/auth/signup')
+      .set('Host', `${otherSlug}.localhost`)
+      .send({
+        email: `other-${email}`,
+        password: 'password123',
+        name: 'Other Workspace',
+        tenantName: 'Other Workspace Co',
+        tenantSlug: otherSlug,
+      })
+      .expect(201);
+
+    // Correct credentials, wrong workspace. RLS scopes the lookup through
+    // Membership, so the user simply isn't found here — the API no longer
+    // mints a token and leaves /auth/me to reject it afterwards.
+    await request(server)
+      .post('/auth/login')
+      .set('Host', `${otherSlug}.localhost`)
+      .send({ email, password: 'password123' })
+      .expect(401);
+
+    // Same credentials on the right workspace still work.
+    await request(server)
+      .post('/auth/login')
+      .set('Host', `${slug}.localhost`)
+      .send({ email, password: 'password123' })
+      .expect(201);
+
+    await owner.tenant.deleteMany({ where: { slug: otherSlug } });
+    await owner.user.deleteMany({ where: { email: `other-${email}` } });
+  }, 20000);
 
   it('rejects signup when the email is already registered', async () => {
     const server = app.getHttpServer();
