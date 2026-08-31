@@ -67,7 +67,7 @@ export default function SignupPage() {
           value={form.tenantSlug}
           onChange={update('tenantSlug')}
           required
-          pattern="[a-z0-9-]+"
+          pattern="[a-z0-9\-]+"
           title="Lowercase letters, numbers, and hyphens only"
         />
       </label>

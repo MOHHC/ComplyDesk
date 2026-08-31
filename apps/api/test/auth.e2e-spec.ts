@@ -88,6 +88,40 @@ describe('Auth (e2e)', () => {
     await prisma.user.deleteMany({ where: { email: `notenant-${email}` } });
   });
 
+  it('resolves the tenant via X-Tenant-Slug when the Host has no subdomain', async () => {
+    const server = app.getHttpServer();
+    const headerSlug = `header-${slug}`;
+    const headerEmail = `header-${email}`;
+
+    const signupRes = await request(server)
+      .post('/auth/signup')
+      .set('Host', `${headerSlug}.localhost`)
+      .send({
+        email: headerEmail,
+        password: 'password123',
+        name: 'Header Fallback',
+        tenantName: 'Header Fallback Co',
+        tenantSlug: headerSlug,
+      })
+      .expect(201);
+
+    // No subdomain on Host here — this is exactly what the web app hits,
+    // since browsers cannot override Host on fetch. X-Tenant-Slug is the
+    // only way this request identifies its tenant.
+    const meRes = await request(server)
+      .get('/auth/me')
+      .set('Host', 'localhost:3001')
+      .set('X-Tenant-Slug', headerSlug)
+      .set('Authorization', `Bearer ${signupRes.body.accessToken}`)
+      .expect(200);
+
+    expect(meRes.body.tenantId).toEqual(expect.any(String));
+    expect(meRes.body.role).toBe('OWNER');
+
+    await prisma.tenant.deleteMany({ where: { slug: headerSlug } });
+    await prisma.user.deleteMany({ where: { email: headerEmail } });
+  });
+
   it('rejects signup when the email is already registered', async () => {
     const server = app.getHttpServer();
 

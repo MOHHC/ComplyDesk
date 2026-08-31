@@ -25,7 +25,7 @@ describe('TenantMiddleware', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it('calls next without setting a tenant when the host has no subdomain', async () => {
+  it('calls next without setting a tenant when the host has no subdomain and no header is present', async () => {
     const { prisma, cls } = buildDeps();
     const middleware = new TenantMiddleware(prisma, cls);
     const next = jest.fn();
@@ -54,6 +54,77 @@ describe('TenantMiddleware', () => {
     );
 
     expect(cls.set).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the X-Tenant-Slug header when the host has no subdomain', async () => {
+    const { prisma, cls } = buildDeps();
+    prisma.tenant.findUnique.mockResolvedValue({ id: 'tenant-1', slug: 'acme' });
+    const middleware = new TenantMiddleware(prisma, cls);
+    const next = jest.fn();
+
+    await middleware.use(
+      { headers: { host: 'localhost:3001', 'x-tenant-slug': 'acme' } } as any,
+      {} as any,
+      next,
+    );
+
+    expect(prisma.tenant.findUnique).toHaveBeenCalledWith({
+      where: { slug: 'acme' },
+    });
+    expect(cls.set).toHaveBeenCalledWith('tenantId', 'tenant-1');
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers the host subdomain over the X-Tenant-Slug header when both are present', async () => {
+    const { prisma, cls } = buildDeps();
+    prisma.tenant.findUnique.mockResolvedValue({ id: 'tenant-host', slug: 'fromhost' });
+    const middleware = new TenantMiddleware(prisma, cls);
+    const next = jest.fn();
+
+    await middleware.use(
+      {
+        headers: { host: 'fromhost.localhost:3000', 'x-tenant-slug': 'fromheader' },
+      } as any,
+      {} as any,
+      next,
+    );
+
+    expect(prisma.tenant.findUnique).toHaveBeenCalledWith({
+      where: { slug: 'fromhost' },
+    });
+    expect(cls.set).toHaveBeenCalledWith('tenantId', 'tenant-host');
+  });
+
+  it('lowercases the X-Tenant-Slug header before lookup', async () => {
+    const { prisma, cls } = buildDeps();
+    prisma.tenant.findUnique.mockResolvedValue({ id: 'tenant-1', slug: 'acme' });
+    const middleware = new TenantMiddleware(prisma, cls);
+    const next = jest.fn();
+
+    await middleware.use(
+      { headers: { host: 'localhost:3001', 'x-tenant-slug': 'ACME' } } as any,
+      {} as any,
+      next,
+    );
+
+    expect(prisma.tenant.findUnique).toHaveBeenCalledWith({
+      where: { slug: 'acme' },
+    });
+  });
+
+  it('ignores an array-valued X-Tenant-Slug header safely', async () => {
+    const { prisma, cls } = buildDeps();
+    const middleware = new TenantMiddleware(prisma, cls);
+    const next = jest.fn();
+
+    await middleware.use(
+      { headers: { host: 'localhost:3001', 'x-tenant-slug': ['a', 'b'] } } as any,
+      {} as any,
+      next,
+    );
+
+    expect(prisma.tenant.findUnique).toHaveBeenCalledWith({ where: { slug: 'a' } });
     expect(next).toHaveBeenCalledTimes(1);
   });
 });

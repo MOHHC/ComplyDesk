@@ -1,3 +1,5 @@
+import type { Role } from "./roles";
+
 export interface SignupInput {
   email: string;
   password: string;
@@ -13,4 +15,10 @@ export interface LoginInput {
 
 export interface AuthResponse {
   accessToken: string;
+}
+
+export interface MeResponse {
+  tenantId: string;
+  userId: string;
+  role: Role;
 }

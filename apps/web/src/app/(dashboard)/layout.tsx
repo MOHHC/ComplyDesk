@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
+import { getMe } from '@/lib/api';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -14,7 +15,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.replace('/login');
       return;
     }
-    setAuthorized(true);
+
+    getMe(token)
+      .then(() => setAuthorized(true))
+      .catch(() => {
+        localStorage.removeItem('accessToken');
+        router.replace('/login');
+      });
   }, [router]);
 
   if (!authorized) {
