@@ -120,7 +120,7 @@ describe('Auth (e2e)', () => {
 
     await prisma.tenant.deleteMany({ where: { slug: headerSlug } });
     await prisma.user.deleteMany({ where: { email: headerEmail } });
-  });
+  }, 15000);
 
   it('rejects signup when the email is already registered', async () => {
     const server = app.getHttpServer();

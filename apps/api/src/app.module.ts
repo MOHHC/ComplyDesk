@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { TenantMiddleware } from './common/tenant.middleware';
+import { TenantTransactionMiddleware } from './common/tenant-transaction.middleware';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -17,6 +18,11 @@ import { AuthModule } from './auth/auth.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TenantMiddleware).forRoutes('*');
+    // Order matters: TenantMiddleware resolves cls.tenantId first;
+    // TenantTransactionMiddleware then opens the tenant-scoped
+    // transaction guards and handlers run inside.
+    consumer
+      .apply(TenantMiddleware, TenantTransactionMiddleware)
+      .forRoutes('*');
   }
 }

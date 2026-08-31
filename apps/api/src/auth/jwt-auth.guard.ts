@@ -37,7 +37,11 @@ export class JwtAuthGuard implements CanActivate {
       throw new ForbiddenException('Unknown or missing tenant');
     }
 
-    const membership = await this.prisma.membership.findUnique({
+    // Membership is RLS-protected; query through the request's
+    // tenant-scoped transaction (tenantTx), not the plain PrismaService,
+    // so the RLS policy sees app.tenant_id and actually applies.
+    const tx = this.cls.get('tenantTx') ?? this.prisma;
+    const membership = await tx.membership.findUnique({
       where: { tenantId_userId: { tenantId, userId: payload.sub } },
     });
     if (!membership) {

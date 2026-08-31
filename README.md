@@ -3,7 +3,8 @@
 npm workspaces monorepo:
 
 - `apps/web` — Next.js 16 (App Router) frontend, port 3000.
-- `apps/api` — NestJS 12 + Prisma API, port 3001. Only this app talks to Postgres.
+- `apps/api` — NestJS 11 (CommonJS + Jest — Nest 12 ships ESM-only, incompatible
+  with classic Jest) + Prisma API, port 3001. Only this app talks to Postgres.
 - `packages/shared` — shared TypeScript types (`Role`, auth DTOs), built to `dist/` —
   run `npm run build -w packages/shared` after editing it, before restarting the apps.
 
@@ -28,10 +29,13 @@ Linked to Neon project **ComplyDesk** (`restless-water-11477407`) in org **Moham
 (`org-royal-boat-08830339`). Branches: `production` (default) and `test` (for e2e
 tests, branched off `production`). `.neon` at the repo root pins the link (git-ignored).
 
-## Multi-tenancy (planned)
+## Multi-tenancy
 
-Tenant will be resolved from the request's `Host` subdomain (e.g. `acme.localhost:3000`
-→ tenant `acme`); user identity from a JWT bearer token. Both combine into a per-request
-context (`{ tenantId, userId, role }`) via `nestjs-cls`. See
-`docs/superpowers/plans/2026-08-31-complydesk-monorepo.md` for the full implementation
-plan (Prisma schema, auth, tenant middleware) — not yet built as of this scaffold.
+Tenant is resolved from the request's `Host` subdomain (e.g. `acme.localhost:3000` →
+tenant `acme`); user identity from a JWT bearer token. Both combine into a per-request
+context (`{ tenantId, userId, role }`) via `nestjs-cls`.
+
+Tenant resolution uses a header-based fallback (`X-Tenant-Slug`) for local dev and
+direct API calls; a reverse proxy forwarding the browser's real subdomain as the
+`Host` header is the documented production-correct approach, not implemented here to
+keep scope focused on the core multi-tenancy architecture.

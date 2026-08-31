@@ -9,6 +9,7 @@ describe('AuthService', () => {
       user: { findUnique: jest.fn(), create: jest.fn() },
       tenant: { findUnique: jest.fn(), create: jest.fn() },
       membership: { create: jest.fn() },
+      $executeRaw: jest.fn().mockResolvedValue(undefined),
       $transaction: jest.fn((fn: any) => fn(prisma)),
     } as any;
     const jwt = {
@@ -36,6 +37,9 @@ describe('AuthService', () => {
       expect(prisma.membership.create).toHaveBeenCalledWith({
         data: { tenantId: 'tenant-1', userId: 'user-1', role: 'OWNER' },
       });
+      // app.tenant_id must be set before the RLS-protected Membership
+      // insert, since its WITH CHECK depends on it.
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ accessToken: 'signed-token' });
     });
 

@@ -2,6 +2,7 @@ import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/co
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { setTenantContext } from '../common/set-tenant-context';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -34,6 +35,12 @@ export class AuthService {
       const tenant = await tx.tenant.create({
         data: { name: dto.tenantName, slug: dto.tenantSlug },
       });
+      // Membership is RLS-protected and this INSERT's row is checked
+      // against app.tenant_id (WITH CHECK) same as any other write to
+      // it. There's no pre-existing tenant context to inherit here —
+      // the tenant is being created in this same transaction — so set
+      // it explicitly now that the tenant's id exists.
+      await setTenantContext(tx, tenant.id);
       const createdUser = await tx.user.create({
         data: { email: dto.email, passwordHash, name: dto.name },
       });
