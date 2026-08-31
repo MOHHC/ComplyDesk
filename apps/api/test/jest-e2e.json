@@ -11,6 +11,6 @@
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "setupFiles": [
-    "dotenv/config"
+    "<rootDir>/setup-e2e.ts"
   ]
 }
