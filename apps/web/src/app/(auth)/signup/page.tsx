@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+import { AuthShell, Button, Field, Notice, TextLink } from '@/components/ui';
 import { signup } from '@/lib/api';
 import { buildHandoffUrl } from '@/lib/session';
 
@@ -50,54 +50,88 @@ export default function SignupPage() {
     }
   }
 
+  const slugPreview = form.tenantSlug.trim().toLowerCase();
+
   return (
-    <form onSubmit={handleSubmit}>
-      <h1>Sign up</h1>
-      <label>
-        Name
-        <input value={form.name} onChange={update('name')} required />
-      </label>
-      <label>
-        Email
-        <input type="email" value={form.email} onChange={update('email')} required />
-      </label>
-      <label>
-        Password
-        <input
+    <AuthShell
+      title="Create a workspace"
+      intro="Your workspace starts with 18 baseline controls, ready to collect evidence against."
+      footer={
+        <>
+          Already have an account? <TextLink href="/login">Sign in</TextLink>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit}>
+        <Field
+          label="Your name"
+          name="name"
+          autoComplete="name"
+          value={form.name}
+          onChange={update('name')}
+          required
+        />
+        <Field
+          label="Email"
+          type="email"
+          name="email"
+          autoComplete="email"
+          value={form.email}
+          onChange={update('email')}
+          required
+        />
+        <Field
+          label="Password"
           type="password"
+          name="password"
+          autoComplete="new-password"
           value={form.password}
           onChange={update('password')}
           required
           minLength={8}
+          hint="At least 8 characters"
         />
-      </label>
-      <label>
-        Workspace name
-        <input value={form.tenantName} onChange={update('tenantName')} required />
-      </label>
-      {/*
-        The pattern accepts uppercase because the server lowercases the
-        slug before storing it. Rejecting it here instead would block the
-        form on a value the API would have accepted and normalized, and
-        would make server-side normalization unreachable from this UI.
-      */}
-      <label>
-        Workspace URL
-        <input
-          value={form.tenantSlug}
-          onChange={update('tenantSlug')}
-          required
-          pattern="[A-Za-z0-9\-]+"
-          title="Letters, numbers, and hyphens only (saved in lowercase)"
-        />
-      </label>
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={submitting}>
-        {submitting ? 'Signing up…' : 'Sign up'}
-      </button>
-      <p>
-        Already have an account? <Link href="/login">Log in</Link>
-      </p>
-    </form>
+
+        <div className="my-6 border-t border-rule pt-5">
+          <Field
+            label="Workspace name"
+            name="tenantName"
+            autoComplete="organization"
+            value={form.tenantName}
+            onChange={update('tenantName')}
+            required
+          />
+          {/*
+            The pattern accepts uppercase because the server lowercases the
+            slug before storing it. Rejecting it here instead would block the
+            form on a value the API would have accepted and normalized, and
+            would make server-side normalization unreachable from this UI.
+          */}
+          <Field
+            label="Workspace URL"
+            name="tenantSlug"
+            value={form.tenantSlug}
+            onChange={update('tenantSlug')}
+            required
+            pattern="[A-Za-z0-9\-]+"
+            title="Letters, numbers, and hyphens only (saved in lowercase)"
+            hint={
+              slugPreview
+                ? `${slugPreview}.complydesk.com`
+                : 'Letters, numbers, and hyphens — saved in lowercase'
+            }
+          />
+        </div>
+
+        {error && (
+          <div className="mb-4">
+            <Notice>{error}</Notice>
+          </div>
+        )}
+        <Button type="submit" disabled={submitting}>
+          {submitting ? 'Creating workspace…' : 'Create workspace'}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

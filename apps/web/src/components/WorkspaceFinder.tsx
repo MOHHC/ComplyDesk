@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import type { WorkspaceSummary } from '@complydesk/shared';
+import { AuthShell, Button, Field, Notice, TextLink } from '@/components/ui';
 import { findWorkspaces } from '@/lib/api';
 import { buildWorkspaceUrl } from '@/lib/session';
 
@@ -40,55 +40,75 @@ export function WorkspaceFinder() {
   }
 
   return (
-    <div>
-      <h1>Find your workspace</h1>
-      <p>
-        Enter your email and we&apos;ll take you to your workspace&apos;s sign-in page. If you
-        already know your workspace URL, go straight to it instead.
-      </p>
-
+    <AuthShell
+      title="Find your workspace"
+      intro="Enter your email and we'll take you to your workspace's sign-in page. If you already know your workspace URL, go straight to it."
+      footer={
+        <>
+          Need an account? <TextLink href="/signup">Create a workspace</TextLink>
+        </>
+      }
+    >
       <form onSubmit={handleSubmit}>
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </label>
-        <button type="submit" disabled={submitting}>
+        <Field
+          label="Email"
+          type="email"
+          name="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <Button type="submit" disabled={submitting}>
           {submitting ? 'Looking up…' : 'Continue'}
-        </button>
+        </Button>
       </form>
 
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <div className="mt-5">
+          <Notice>{error}</Notice>
+        </div>
+      )}
 
       {workspaces?.length === 0 && (
-        <p role="status">
-          No workspaces found for that email. Check the address, or{' '}
-          <Link href="/signup">create a new workspace</Link>.
-        </p>
+        <div className="mt-5">
+          <Notice tone="neutral" role="status">
+            No workspaces found for that email. Check the address, or{' '}
+            <TextLink href="/signup">create a new workspace</TextLink>.
+          </Notice>
+        </div>
       )}
 
       {workspaces && workspaces.length > 1 && (
-        <div>
-          <h2>Choose a workspace</h2>
-          <ul>
+        <section className="mt-8">
+          <h2 className="mb-1 text-[13px] font-medium text-ink">Choose a workspace</h2>
+          <p className="mb-3 text-[13px] text-ink-muted">
+            This email has access to {workspaces.length} workspaces.
+          </p>
+          {/* Register rows, not cards: a fixed gutter rule on the left,
+              hairline separators, and the slug in mono because it is a
+              record value (it is literally the subdomain). */}
+          <ul className="border-t border-rule">
             {workspaces.map((workspace) => (
               <li key={workspace.slug}>
-                <a href={buildWorkspaceUrl(workspace.slug, '/login')}>
-                  {workspace.name} <span>({workspace.slug})</span>
+                <a
+                  href={buildWorkspaceUrl(workspace.slug, '/login')}
+                  className="group flex cursor-pointer items-baseline gap-4 border-b border-l-2 border-rule border-l-transparent py-3 pr-2 pl-3 transition-colors duration-150 hover:border-l-ink hover:bg-paper-raised"
+                >
+                  <span className="flex-1 text-[14px] font-medium text-ink">{workspace.name}</span>
+                  <span className="font-mono text-[12px] text-ink-muted">{workspace.slug}</span>
+                  <span
+                    aria-hidden="true"
+                    className="text-[13px] text-ink-muted transition-colors duration-150 group-hover:text-ink"
+                  >
+                    &rarr;
+                  </span>
                 </a>
               </li>
             ))}
           </ul>
-        </div>
+        </section>
       )}
-
-      <p>
-        Need an account? <Link href="/signup">Sign up</Link>
-      </p>
-    </div>
+    </AuthShell>
   );
 }

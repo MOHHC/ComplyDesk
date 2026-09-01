@@ -1,0 +1,124 @@
+import Link from 'next/link';
+
+/**
+ * Shared primitives for the auth surfaces and the register rows.
+ *
+ * Structure here is carried by hairline rules, never by shadows or
+ * cards — the reference is an auditor's working paper, where a row's
+ * meaning comes from its column and its mark, not from a floating
+ * container.
+ */
+
+export function Wordmark({ className = '' }: { className?: string }) {
+  return (
+    <span className={`font-mono text-[13px] font-medium tracking-tight text-ink ${className}`}>
+      Comply<span className="text-ink-muted">Desk</span>
+    </span>
+  );
+}
+
+/** Single-column form on paper. Used by all three auth screens so signing
+ * in feels continuous with the register you're signing into. */
+export function AuthShell({
+  title,
+  intro,
+  children,
+  footer,
+}: {
+  title: string;
+  intro?: string;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  return (
+    <main className="mx-auto flex min-h-dvh w-full max-w-[26rem] flex-col justify-center px-6 py-16">
+      <div className="mb-8 flex items-baseline justify-between border-b border-rule pb-3">
+        <Wordmark />
+        <span className="font-mono text-[11px] text-ink-muted">Audit readiness</span>
+      </div>
+
+      <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.015em] text-ink">
+        {title}
+      </h1>
+      {intro && <p className="mt-2 text-[14px] leading-relaxed text-ink-muted">{intro}</p>}
+
+      <div className="mt-7">{children}</div>
+
+      {footer && (
+        <div className="mt-8 border-t border-rule pt-4 text-[13px] text-ink-muted">{footer}</div>
+      )}
+    </main>
+  );
+}
+
+export function Field({
+  label,
+  hint,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
+  const id = props.id ?? props.name ?? label.toLowerCase().replace(/\s+/g, '-');
+  return (
+    <div className="mb-4">
+      <label htmlFor={id} className="mb-1.5 block text-[13px] font-medium text-ink">
+        {label}
+      </label>
+      <input
+        id={id}
+        {...props}
+        className={`w-full rounded-sm border border-rule bg-paper-raised px-3 py-2.5 text-[14px] text-ink transition-colors duration-150 placeholder:text-ink-muted/60 hover:border-ink-muted/50 focus:border-ink focus:outline-none ${props.className ?? ''}`}
+      />
+      {hint && <p className="mt-1.5 font-mono text-[11px] text-ink-muted">{hint}</p>}
+    </div>
+  );
+}
+
+/** Primary actions are ink, not a brand hue — see globals.css. */
+export function Button({
+  children,
+  variant = 'primary',
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'quiet' }) {
+  const base =
+    'inline-flex w-full cursor-pointer items-center justify-center rounded-sm px-4 py-2.5 text-[14px] font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-55';
+  const styles =
+    variant === 'primary'
+      ? 'bg-ink text-paper hover:bg-ink/88'
+      : 'border border-rule bg-transparent text-ink hover:border-ink-muted/60 hover:bg-paper-raised';
+  return (
+    <button {...props} className={`${base} ${styles} ${props.className ?? ''}`}>
+      {children}
+    </button>
+  );
+}
+
+/** Errors state what happened, in the interface's voice. Marked with the
+ * exception ink — the same color a missing control carries — so the
+ * meaning of that color stays consistent everywhere. */
+export function Notice({
+  tone = 'exception',
+  children,
+  role = 'alert',
+}: {
+  tone?: 'exception' | 'neutral';
+  children: React.ReactNode;
+  role?: 'alert' | 'status';
+}) {
+  const accent = tone === 'exception' ? 'border-l-exception' : 'border-l-ink-muted';
+  const text = tone === 'exception' ? 'text-exception' : 'text-ink-muted';
+  return (
+    <p role={role} className={`border-l-2 ${accent} py-1 pl-3 text-[13px] leading-relaxed ${text}`}>
+      {children}
+    </p>
+  );
+}
+
+export function TextLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="cursor-pointer font-medium text-ink underline decoration-rule underline-offset-[3px] transition-colors duration-150 hover:decoration-ink"
+    >
+      {children}
+    </Link>
+  );
+}

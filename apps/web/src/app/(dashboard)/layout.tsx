@@ -35,11 +35,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <aside style={{ width: 220, borderRight: '1px solid #e2e2e2', padding: '1rem' }}>
-        <Sidebar />
+    <div className="flex min-h-dvh flex-col md:flex-row">
+      {/* Full-width strip on small screens, rail from md up — the nav is
+          never hidden behind a toggle, since it is only four items. */}
+      <aside className="w-full shrink-0 border-b border-rule md:w-[13.5rem] md:border-b-0 md:border-r">
+        <div className="md:sticky md:top-0 md:h-dvh">
+          <Sidebar />
+        </div>
       </aside>
-      <main style={{ flex: 1, padding: '1.5rem' }}>{children}</main>
+      <main className="min-w-0 flex-1 px-6 py-8 md:px-10 md:py-10">
+        <div className="mx-auto max-w-3xl">{children}</div>
+      </main>
     </div>
   );
 }
