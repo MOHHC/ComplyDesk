@@ -26,29 +26,37 @@ enum TaskStatus {
 }
 
 model Tenant {
-  id          String       @id @default(uuid())
-  name        String
-  slug        String       @unique
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  memberships Membership[]
-  controls    Control[]
-  evidence    Evidence[]
-  tasks       Task[]
-  auditEvents AuditEvent[]
+  id                      String                   @id @default(uuid())
+  name                    String
+  slug                    String                   @unique
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  memberships             Membership[]
+  controls                Control[]
+  evidence                Evidence[]
+  tasks                   Task[]
+  auditEvents             AuditEvent[]
+  evidenceClassifications EvidenceClassification[]
+  policyDocuments         PolicyDocument[]
+  policyChunks            PolicyChunk[]
+  gapAnalysisRuns         GapAnalysisRun[]
+  gapAnalysisResults      GapAnalysisResult[]
 }
 
 model User {
-  id           String       @id @default(uuid())
-  email        String       @unique
-  passwordHash String
-  name         String
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  memberships  Membership[]
-  evidence     Evidence[]   @relation("EvidenceUploadedBy")
-  tasks        Task[]       @relation("TaskAssignee")
-  auditEvents  AuditEvent[] @relation("AuditActor")
+  id                      String                   @id @default(uuid())
+  email                   String                   @unique
+  passwordHash            String
+  name                    String
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  memberships             Membership[]
+  evidence                Evidence[]               @relation("EvidenceUploadedBy")
+  tasks                   Task[]                   @relation("TaskAssignee")
+  auditEvents             AuditEvent[]             @relation("AuditActor")
+  reviewedClassifications EvidenceClassification[]
+  uploadedPolicyDocuments PolicyDocument[]
+  gapAnalysisRuns         GapAnalysisRun[]
 }
 
 model Membership {
@@ -65,45 +73,48 @@ model Membership {
 }
 
 model Control {
-  id                  String     @id @default(uuid())
-  tenantId            String
-  code                String
-  category            String
-  title               String
-  description         String
-  evidenceGuidance    String
-  refreshIntervalDays Int
-  createdAt           DateTime   @default(now())
-  updatedAt           DateTime   @updatedAt
-  tenant              Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  evidence            Evidence[]
-  tasks               Task[]
+  id                      String                   @id @default(uuid())
+  tenantId                String
+  code                    String
+  category                String
+  title                   String
+  description             String
+  evidenceGuidance        String
+  refreshIntervalDays     Int
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  evidence                Evidence[]
+  tasks                   Task[]
+  evidenceClassifications EvidenceClassification[]
+  gapAnalysisResults      GapAnalysisResult[]
 
   @@unique([tenantId, code])
   @@index([tenantId, category])
 }
 
 model Evidence {
-  id           String         @id @default(uuid())
-  tenantId     String
-  controlId    String
-  uploadedById String
-  notes        String?
+  id             String                  @id @default(uuid())
+  tenantId       String
+  controlId      String
+  uploadedById   String
+  notes          String?
   // Object-storage key within the tenant-scoped "uploads" bucket prefix
   // (see ObjectStorageService) — never a public URL, since the bucket is
   // private and every download goes through a short-lived presigned URL
   // generated on request.
-  fileKey      String
-  fileName     String
-  fileSize     Int
-  mimeType     String
-  status       EvidenceStatus @default(PENDING)
-  collectedAt  DateTime       @default(now())
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  control      Control        @relation(fields: [controlId], references: [id], onDelete: Cascade)
-  uploadedBy   User           @relation("EvidenceUploadedBy", fields: [uploadedById], references: [id])
+  fileKey        String
+  fileName       String
+  fileSize       Int
+  mimeType       String
+  status         EvidenceStatus          @default(PENDING)
+  collectedAt    DateTime                @default(now())
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  tenant         Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  control        Control                 @relation(fields: [controlId], references: [id], onDelete: Cascade)
+  uploadedBy     User                    @relation("EvidenceUploadedBy", fields: [uploadedById], references: [id])
+  classification EvidenceClassification?
 
   // Leading (tenantId, controlId) supports the per-tenant evidence list;
   // trailing collectedAt supports "most recent evidence per control",
@@ -155,4 +166,102 @@ model AuditEvent {
 
   @@index([tenantId, createdAt])
   @@index([tenantId, targetType, targetId])
+}
+
+enum ReviewStatus {
+  PENDING
+  CONFIRMED
+  OVERRIDDEN
+  DISMISSED
+}
+
+enum PolicyDocStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+model EvidenceClassification {
+  id                 String       @id @default(uuid())
+  tenantId           String
+  evidenceId         String       @unique
+  suggestedControlId String?
+  confidence         Float
+  reasoning          String
+  reviewStatus       ReviewStatus @default(PENDING)
+  reviewedById       String?
+  reviewedAt         DateTime?
+  createdAt          DateTime     @default(now())
+
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  evidence         Evidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  suggestedControl Control? @relation(fields: [suggestedControlId], references: [id], onDelete: SetNull)
+  reviewedBy       User?    @relation(fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, reviewStatus])
+}
+
+model PolicyDocument {
+  id           String          @id @default(uuid())
+  tenantId     String
+  fileKey      String
+  fileName     String
+  mimeType     String
+  status       PolicyDocStatus @default(PROCESSING)
+  uploadedById String
+  createdAt    DateTime        @default(now())
+
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  uploadedBy User          @relation(fields: [uploadedById], references: [id])
+  chunks     PolicyChunk[]
+
+  @@index([tenantId, createdAt])
+}
+
+model PolicyChunk {
+  id         String                     @id @default(uuid())
+  tenantId   String
+  documentId String
+  chunkIndex Int
+  content    String
+  // pgvector column; all-MiniLM-L6-v2 produces 384-dim vectors. Prisma
+  // has no native vector type, so it's declared Unsupported() and the
+  // actual column/index are created by raw SQL in the migration below.
+  embedding  Unsupported("vector(384)")
+
+  document       PolicyDocument      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  citedInResults GapAnalysisResult[]
+
+  @@index([tenantId, documentId])
+}
+
+model GapAnalysisRun {
+  id        String   @id @default(uuid())
+  tenantId  String
+  runById   String
+  createdAt DateTime @default(now())
+
+  tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  runBy   User                @relation(fields: [runById], references: [id])
+  results GapAnalysisResult[]
+
+  @@index([tenantId, createdAt])
+}
+
+model GapAnalysisResult {
+  id              String  @id @default(uuid())
+  tenantId        String
+  runId           String
+  controlId       String
+  covered         Boolean
+  reasoning       String
+  citationChunkId String?
+
+  run           GapAnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  control       Control        @relation(fields: [controlId], references: [id], onDelete: Cascade)
+  citationChunk PolicyChunk?   @relation(fields: [citationChunkId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, runId])
 }
