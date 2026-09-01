@@ -22,3 +22,11 @@ export interface MeResponse {
   userId: string;
   role: Role;
 }
+
+/** One workspace a given email belongs to, as returned by the
+ * root-domain workspace picker. Intentionally carries nothing beyond
+ * what's needed to build the subdomain URL and label the choice. */
+export interface WorkspaceSummary {
+  slug: string;
+  name: string;
+}

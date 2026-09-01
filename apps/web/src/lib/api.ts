@@ -10,6 +10,7 @@ import type {
   SignupInput,
   Task,
   TaskStatus,
+  WorkspaceSummary,
 } from '@complydesk/shared';
 import { parseSubdomain } from '@complydesk/shared';
 
@@ -83,6 +84,16 @@ export function login(input: LoginInput): Promise<AuthResponse> {
 
 export function getMe(token: string): Promise<MeResponse> {
   return request<MeResponse>('/auth/me', { token });
+}
+
+/** Workspaces this email belongs to. Used by the root-domain picker to
+ * send people to the right subdomain, since login itself is tenant-scoped
+ * and can't succeed without one. */
+export function findWorkspaces(email: string): Promise<WorkspaceSummary[]> {
+  return request<WorkspaceSummary[]>('/auth/workspaces', {
+    method: 'POST',
+    body: { email },
+  });
 }
 
 export function listControls(

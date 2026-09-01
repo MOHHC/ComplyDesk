@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import type { WorkspaceSummary } from '@complydesk/shared';
 import { ClsService } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
@@ -9,6 +10,7 @@ import { setTenantContext } from '../common/set-tenant-context';
 import { SeedControlsService } from '../controls/seed-controls.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { FindWorkspacesDto } from './dto/find-workspaces.dto';
 
 const SALT_ROUNDS = 10;
 const UNIQUE_VIOLATION = '23505';
@@ -133,6 +135,23 @@ export class AuthService {
     }
 
     return { accessToken: this.jwt.sign({ sub: userId }) };
+  }
+
+  /**
+   * Which workspaces does this email belong to? Backs the root-domain
+   * picker, where there is no subdomain and therefore no tenant context
+   * — so this goes through the SECURITY DEFINER helper rather than a
+   * normal Membership query, which would throw on the missing
+   * app.tenant_id (see the auth_workspaces_for_email migration).
+   *
+   * Returns an empty array for an unknown email rather than throwing, so
+   * the caller can present "no workspaces found" identically whether the
+   * account doesn't exist or simply has no memberships.
+   */
+  async findWorkspaces(dto: FindWorkspacesDto): Promise<WorkspaceSummary[]> {
+    return this.prisma.$queryRaw<WorkspaceSummary[]>`
+      SELECT slug, name FROM auth_workspaces_for_email(${dto.email})
+    `;
   }
 
   async login(dto: LoginDto): Promise<{ accessToken: string }> {

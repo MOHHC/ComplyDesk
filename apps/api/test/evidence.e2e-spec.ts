@@ -58,7 +58,7 @@ describe('Evidence (e2e)', () => {
       .set('Authorization', `Bearer ${fixture.ownerToken}`)
       .expect(200);
     expect(controlRes.body.status).toBe('has_evidence');
-  }, 20000);
+  });
 
   it('lists evidence for a control with a working presigned download URL', async () => {
     const listRes = await request(app.getHttpServer())
@@ -77,7 +77,7 @@ describe('Evidence (e2e)', () => {
     expect(downloadRes.status).toBe(200);
     const body = await downloadRes.text();
     expect(body).toBe(`evidence content ${suffix}`);
-  }, 20000);
+  });
 
   it('rejects upload from an AUDITOR, a view-only role', async () => {
     const auditor = await addMember(fixture.tenantId, Role.AUDITOR, `${suffix}-ev`);
@@ -88,7 +88,7 @@ describe('Evidence (e2e)', () => {
       .set('Authorization', `Bearer ${auditor.token}`)
       .attach('file', Buffer.from('x'), 'x.txt')
       .expect(403);
-  }, 15000);
+  });
 
   it('allows upload from a CONTRIBUTOR', async () => {
     const contributor = await addMember(fixture.tenantId, Role.CONTRIBUTOR, `${suffix}-ev2`);
@@ -99,7 +99,7 @@ describe('Evidence (e2e)', () => {
       .set('Authorization', `Bearer ${contributor.token}`)
       .attach('file', Buffer.from('contributor upload'), 'c.txt')
       .expect(201);
-  }, 15000);
+  });
 
   it('404s uploading to a control that does not exist', async () => {
     await request(app.getHttpServer())
@@ -108,5 +108,5 @@ describe('Evidence (e2e)', () => {
       .set('Authorization', `Bearer ${fixture.ownerToken}`)
       .attach('file', Buffer.from('x'), 'x.txt')
       .expect(404);
-  }, 15000);
+  });
 });

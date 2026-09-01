@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { clearToken } from '@/lib/session';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard' },
@@ -16,7 +17,7 @@ export function Sidebar() {
   const router = useRouter();
 
   function handleLogout() {
-    localStorage.removeItem('accessToken');
+    clearToken();
     router.push('/login');
   }
 

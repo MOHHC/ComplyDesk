@@ -4,13 +4,19 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 import { getMe } from '@/lib/api';
+import { clearToken, consumeHandoffToken, readToken } from '@/lib/session';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
+    // Must run before the token check: arriving here straight from
+    // signup on another subdomain, the token is in the URL fragment and
+    // not yet in this origin's localStorage.
+    consumeHandoffToken();
+
+    const token = readToken();
     if (!token) {
       router.replace('/login');
       return;
@@ -19,7 +25,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     getMe(token)
       .then(() => setAuthorized(true))
       .catch(() => {
-        localStorage.removeItem('accessToken');
+        clearToken();
         router.replace('/login');
       });
   }, [router]);

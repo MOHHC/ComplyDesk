@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from '../rbac/roles.guard';
+import { WorkspaceLookupThrottleGuard } from './workspace-lookup-throttle.guard';
 
 /**
  * JwtAuthGuard and RolesGuard are referenced via @UseGuards() in every
@@ -24,7 +25,10 @@ import { RolesGuard } from '../rbac/roles.guard';
       signOptions: { expiresIn: '7d' },
     }),
   ],
-  providers: [JwtAuthGuard, RolesGuard],
-  exports: [JwtAuthGuard, RolesGuard, JwtModule],
+  // WorkspaceLookupThrottleGuard holds per-IP counters in instance
+  // state, so it must be a singleton provider — a new instance per use
+  // would reset the window on every request and enforce nothing.
+  providers: [JwtAuthGuard, RolesGuard, WorkspaceLookupThrottleGuard],
+  exports: [JwtAuthGuard, RolesGuard, WorkspaceLookupThrottleGuard, JwtModule],
 })
 export class GuardsModule {}

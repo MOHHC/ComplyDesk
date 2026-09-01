@@ -11,6 +11,7 @@ import { Request } from 'express';
 import { catchError, defer, from, mergeMap, Observable, throwError } from 'rxjs';
 import { AppClsStore } from '../common/cls-keys';
 import { AUDIT_KEY, AuditOptions } from './audit.decorator';
+import { SKIP_AUDIT_KEY } from './skip-audit.decorator';
 import { diffRows, redactBody } from './diff';
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -43,6 +44,14 @@ export class AuditInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = context.switchToHttp().getRequest<Request>();
     if (!MUTATING_METHODS.has(req.method)) {
+      return next.handle();
+    }
+
+    const skip = this.reflector.getAllAndOverride<boolean | undefined>(SKIP_AUDIT_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (skip) {
       return next.handle();
     }
 

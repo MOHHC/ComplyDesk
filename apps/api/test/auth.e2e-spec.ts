@@ -75,7 +75,7 @@ describe('Auth (e2e)', () => {
       .expect(201);
 
     expect(loginRes.body.accessToken).toEqual(expect.any(String));
-  }, 15000);
+  });
 
   it('rejects a valid token when the Host header resolves to no tenant', async () => {
     const server = app.getHttpServer();
@@ -134,7 +134,7 @@ describe('Auth (e2e)', () => {
 
     await owner.tenant.deleteMany({ where: { slug: headerSlug } });
     await owner.user.deleteMany({ where: { email: headerEmail } });
-  }, 15000);
+  });
 
   it('refuses login from a workspace the user has no membership in', async () => {
     const server = app.getHttpServer();
@@ -172,7 +172,7 @@ describe('Auth (e2e)', () => {
 
     await owner.tenant.deleteMany({ where: { slug: otherSlug } });
     await owner.user.deleteMany({ where: { email: `other-${email}` } });
-  }, 20000);
+  });
 
   it('logs in with a different email case than was used at signup', async () => {
     // Regression test: signup stored the email exactly as typed
@@ -228,7 +228,7 @@ describe('Auth (e2e)', () => {
 
     await owner.tenant.deleteMany({ where: { slug: caseSlug } });
     await owner.user.deleteMany({ where: { email: mixedCaseEmail.toLowerCase() } });
-  }, 15000);
+  });
 
   it('rejects signup when the email is already registered', async () => {
     const server = app.getHttpServer();

@@ -47,7 +47,7 @@ describe('Dashboard (e2e)', () => {
       controlsMissingEvidence: totalControls,
       evidenceExpiringSoon: 0,
     });
-  }, 15000);
+  });
 
   it('recalculates after evidence is uploaded for one control', async () => {
     const controls = await request(app.getHttpServer())
@@ -73,5 +73,5 @@ describe('Dashboard (e2e)', () => {
 
     expect(res.body.controlsMissingEvidence).toBe(totalControls - 1);
     expect(res.body.controlsWithValidEvidencePercent).toBeCloseTo((1 / totalControls) * 100, 1);
-  }, 20000);
+  });
 });

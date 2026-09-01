@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { MeResponse } from '@complydesk/shared';
 import { getMe } from './api';
+import { clearToken, readToken } from './session';
 
 /**
  * Every page under (dashboard) needs both the bearer token (to call the
@@ -20,7 +21,7 @@ export function useAuth() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem('accessToken');
+    const stored = readToken();
     if (!stored) {
       router.replace('/login');
       return;
@@ -29,7 +30,7 @@ export function useAuth() {
     getMe(stored)
       .then(setMe)
       .catch((err) => {
-        localStorage.removeItem('accessToken');
+        clearToken();
         setError(err instanceof Error ? err.message : 'Failed to load session');
         router.replace('/login');
       });

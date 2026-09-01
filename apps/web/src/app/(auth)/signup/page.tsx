@@ -1,12 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { signup } from '@/lib/api';
+import { buildHandoffUrl } from '@/lib/session';
 
 export default function SignupPage() {
-  const router = useRouter();
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -28,8 +27,17 @@ export default function SignupPage() {
     setSubmitting(true);
     try {
       const { accessToken } = await signup(form);
-      localStorage.setItem('accessToken', accessToken);
-      router.push('/dashboard');
+      // Move to the new workspace's own subdomain rather than staying
+      // put. Everything after signup is tenant-scoped — login, /auth/me,
+      // every API call — and the tenant is resolved from the subdomain.
+      // Staying on the current host leaves the browser pointed at either
+      // no tenant (root domain) or, worse, a *different* workspace the
+      // new user isn't a member of, which produces a 403 on /auth/me and
+      // a 401 on any later login, both of which read as "wrong password".
+      //
+      // A full page navigation, not router.push: this crosses an origin
+      // boundary, which the Next client-side router cannot do.
+      window.location.href = buildHandoffUrl(form.tenantSlug, '/dashboard', accessToken);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
       setSubmitting(false);

@@ -46,7 +46,7 @@ describe('Controls (e2e)', () => {
     expect(codes).toEqual(seedControls.map((c: { code: string }) => c.code).sort());
     // Every control starts with no evidence.
     expect(res.body.every((c: { status: string }) => c.status === 'no_evidence')).toBe(true);
-  }, 15000);
+  });
 
   it('filters by category', async () => {
     const res = await request(app.getHttpServer())
