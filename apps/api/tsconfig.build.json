@@ -1,7 +1,16 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "rootDir": "./src"
+    "rootDir": "./src",
+    // nest-cli.json has deleteOutDir: true, which wipes dist/ on every
+    // build. The default tsbuildinfo location is next to this config
+    // file, outside dist/ — so a wipe wasn't clearing the incremental
+    // cache, and tsc would see a "no changes since last build" cache hit
+    // against a dist/ that no longer existed, and silently emit nothing
+    // (exit 0, empty dist/). Putting the cache file inside dist/ means
+    // deleteOutDir always clears it together with the output it
+    // describes, so they can't go out of sync again.
+    "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
   },
   "include": ["src"],
   "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
