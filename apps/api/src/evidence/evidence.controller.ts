@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   UploadedFile,
   UseGuards,
@@ -16,15 +17,22 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../rbac/roles.guard';
 import { Roles } from '../rbac/roles.decorator';
 import { Audit } from '../audit/audit.decorator';
+import { RateLimit } from '../rate-limit/rate-limit.decorator';
+import { TenantRateLimitGuard } from '../rate-limit/tenant-rate-limit.guard';
 import { EvidenceService } from './evidence.service';
+import { EvidenceClassificationService } from './evidence-classification.service';
 import { UploadEvidenceDto } from './dto/upload-evidence.dto';
+import { ReviewClassificationDto } from './dto/review-classification.dto';
 
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 
 @Controller('controls/:controlId/evidence')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, TenantRateLimitGuard)
 export class EvidenceController {
-  constructor(private readonly evidence: EvidenceService) {}
+  constructor(
+    private readonly evidence: EvidenceService,
+    private readonly classification: EvidenceClassificationService,
+  ) {}
 
   @Post()
   @Roles(Role.OWNER, Role.ADMIN, Role.CONTRIBUTOR)
@@ -34,6 +42,7 @@ export class EvidenceController {
       limits: { fileSize: MAX_FILE_SIZE_BYTES },
     }),
   )
+  @RateLimit('classification')
   @Audit({ action: 'evidence.upload', model: 'evidence' })
   upload(
     @Param('controlId') controlId: string,
@@ -50,5 +59,16 @@ export class EvidenceController {
   @Get()
   list(@Param('controlId') controlId: string) {
     return this.evidence.listForControl(controlId);
+  }
+
+  @Patch(':evidenceId/classification')
+  @Roles(Role.OWNER, Role.ADMIN, Role.CONTRIBUTOR)
+  @Audit({ action: 'evidence.reclassify', model: 'evidenceClassification', idParam: 'evidenceId' })
+  review(
+    @Param('controlId') controlId: string,
+    @Param('evidenceId') evidenceId: string,
+    @Body() dto: ReviewClassificationDto,
+  ) {
+    return this.classification.review(controlId, evidenceId, dto.decision);
   }
 }

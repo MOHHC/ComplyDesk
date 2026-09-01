@@ -3,6 +3,7 @@ import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppClsStore } from '../common/cls-keys';
 import { ObjectStorageService } from '../storage/object-storage.service';
+import { EvidenceClassificationService } from './evidence-classification.service';
 
 @Injectable()
 export class EvidenceService {
@@ -10,6 +11,7 @@ export class EvidenceService {
     private readonly prisma: PrismaService,
     private readonly cls: ClsService<AppClsStore>,
     private readonly storage: ObjectStorageService,
+    private readonly classification: EvidenceClassificationService,
   ) {}
 
   private tx() {
@@ -41,7 +43,7 @@ export class EvidenceService {
     const key = this.storage.buildKey(tenantId, controlId, file.originalname);
     await this.storage.upload(key, file.buffer, file.mimetype);
 
-    return tx.evidence.create({
+    const evidence = await tx.evidence.create({
       data: {
         tenantId,
         controlId,
@@ -53,6 +55,17 @@ export class EvidenceService {
         mimeType: file.mimetype,
       },
     });
+
+    let classificationRow = null;
+    try {
+      classificationRow = await this.classification.classify(evidence.id, controlId, file.buffer, file.mimetype);
+    } catch {
+      // Best-effort: classification failing must never fail the upload
+      // that already succeeded. No retry — the review endpoint has
+      // nothing to review until a future upload succeeds in classifying.
+    }
+
+    return { ...evidence, classification: classificationRow };
   }
 
   async listForControl(controlId: string) {
