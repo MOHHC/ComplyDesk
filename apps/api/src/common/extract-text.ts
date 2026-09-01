@@ -17,10 +17,13 @@ export interface ExtractedText {
 export async function extractText(buffer: Buffer, mimeType: string): Promise<ExtractedText> {
   if (mimeType === 'application/pdf') {
     const parser = new PDFParse({ data: buffer });
-    const result = await parser.getText({ pageJoiner: '' });
-    const trimmed = result.text.trim();
-    await parser.destroy();
-    return { text: trimmed, hasText: trimmed.length >= MIN_EXTRACTED_TEXT_LENGTH };
+    try {
+      const result = await parser.getText({ pageJoiner: '' });
+      const trimmed = result.text.trim();
+      return { text: trimmed, hasText: trimmed.length >= MIN_EXTRACTED_TEXT_LENGTH };
+    } finally {
+      await parser.destroy();
+    }
   }
   const text = buffer.toString('utf-8').trim();
   return { text, hasText: text.length >= MIN_EXTRACTED_TEXT_LENGTH };
