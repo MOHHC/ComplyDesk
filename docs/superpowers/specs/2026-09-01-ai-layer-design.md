@@ -5,7 +5,8 @@ Date: 2026-09-01
 
 ## Summary
 
-Two tenant-scoped AI features, both gated behind human confirmation, both using OpenAI:
+Two tenant-scoped AI features, both gated behind human confirmation, both using the Claude API for
+reasoning and a free, locally-run model for embeddings:
 
 1. **Evidence auto-classification** — when evidence is uploaded to a control, an LLM suggests
    which control it actually satisfies. The suggestion is shown alongside the evidence; it never
@@ -17,15 +18,22 @@ Two tenant-scoped AI features, both gated behind human confirmation, both using 
    controls with a citation to the source chunk, uncovered controls with none found.
 
 Both features run entirely inline on the triggering HTTP request — no background job queue exists
-in this project and neither feature justifies introducing one. Both are rate-limited per tenant
-since every call reaches a paid external API.
+in this project and neither feature justifies introducing one. Classification and gap analysis are
+both rate-limited per tenant since every call reaches the paid Claude API; embedding is local and
+free, so it isn't rate-limited on cost grounds (chunk volume is still bounded by the policy upload
+path itself).
 
 ## Decisions already made (not open for revisiting in this doc)
 
-- **LLM provider: OpenAI**, for both chat/vision completions and embeddings — one vendor, one API
-  key, embeddings and completions from the same provider.
-- **Image evidence → GPT-4o (vision) directly**, no separate OCR step.
-- **Classification runs synchronously on upload** — the upload request itself calls OpenAI and
+- **Reasoning provider: Anthropic's Claude API**, for both vision (image evidence) and text
+  (PDF/text evidence, and gap-analysis coverage checks) — chosen specifically to avoid an OpenAI
+  bill.
+- **Embedding provider: a free, locally-run open-source model — `all-MiniLM-L6-v2`, via
+  `@xenova/transformers`** — runs in-process, no external API call, no per-embedding cost. Chosen
+  because Anthropic has no embeddings API, and the whole point of this substitution is to avoid a
+  second paid vendor for the one piece Claude can't do itself.
+- **Image evidence → Claude's vision input directly**, no separate OCR step.
+- **Classification runs synchronously on upload** — the upload request itself calls Claude and
   returns the suggestion in the response.
 - **Gap analysis is triggered on demand** by an explicit "Run gap analysis" action, not
   automatically on every policy upload.
@@ -110,10 +118,11 @@ model PolicyChunk {
   documentId String
   chunkIndex Int
   content    String
-  // pgvector column; text-embedding-3-small produces 1536-dim vectors.
+  // pgvector column; all-MiniLM-L6-v2 (via @xenova/transformers, run
+  // locally — see the AI provider section) produces 384-dim vectors.
   // Prisma has no native vector type — declared via Unsupported() and
   // managed through raw SQL in the migration (see below).
-  embedding  Unsupported("vector(1536)")
+  embedding  Unsupported("vector(384)")
 
   document PolicyDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
   tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -155,7 +164,7 @@ model GapAnalysisResult {
 Migration notes:
 - `CREATE EXTENSION IF NOT EXISTS vector;` — verify enabled on both `test` and `production`
   branches as part of applying this migration (idempotent either way).
-- The `vector(1536)` column and its ivfflat/hnsw similarity index are created via raw SQL in the
+- The `vector(384)` column and its ivfflat/hnsw similarity index are created via raw SQL in the
   migration, since Prisma's schema DSL can't express pgvector's index types — this is the same
   "Prisma migrate deploy applies raw SQL, doesn't diff the schema" model already in use.
 - `app_runtime` gets `GRANT SELECT, INSERT, UPDATE, DELETE` on all five new tables, same as
@@ -166,19 +175,26 @@ Migration notes:
 `EvidenceService.upload()` gains one step after the `Evidence` row is inserted, in the same
 request handler:
 
-1. **Image mimeType** → send the image bytes directly to a vision-capable OpenAI model (GPT-4o)
-   with a prompt listing the tenant's 18 control codes/titles/descriptions, requesting structured
-   JSON via OpenAI's structured-output/JSON-schema mode:
-   `{ suggestedControlCode: string | null, confidence: number, reasoning: string }`.
+1. **Image mimeType** → send the image bytes directly to Claude as a vision input (base64 image
+   content block) with a prompt listing the tenant's 18 control codes/titles/descriptions,
+   requesting structured output via a forced tool call (an Anthropic tool schema with
+   `suggestedControlCode`, `confidence`, `reasoning` fields, `tool_choice` forcing that tool) —
+   Claude has no separate JSON-schema response mode, so a forced single-tool call is the
+   structured-output equivalent.
 2. **`application/pdf`** → extract text server-side with `pdf-parse`, then send the extracted text
-   through the same prompt (text-only model, cheaper). If extraction yields near-empty text (a
+   through the same prompt/tool as a text-only message. If extraction yields near-empty text (a
    scanned PDF with no text layer), skip the LLM call and record
    `confidence: 0, reasoning: "no extractable text"` directly.
-3. **Anything else** (plain text, markdown, etc.) → send the raw text through the text-only prompt.
+3. **Anything else** (plain text, markdown, etc.) → send the raw text through the same text-only
+   prompt/tool.
 4. Write the `EvidenceClassification` row, `reviewStatus: PENDING`.
 5. Include the classification in the upload response.
 
-Failure handling: if the OpenAI call throws or times out, the evidence upload still succeeds —
+Model: `claude-haiku-4-5-20251001` for both the vision and text-only calls — the cheapest current
+model that still supports image input, appropriate for a per-upload classification call rather
+than a heavier reasoning task.
+
+Failure handling: if the Claude call throws or times out, the evidence upload still succeeds —
 classification is best-effort annotation, never a blocker on the file actually being saved. The
 response's `classification` field is `null` in that case; there is no automatic retry.
 
@@ -208,7 +224,8 @@ All three record `reviewedById`/`reviewedAt`. Same role gate as evidence upload
 2. Create `PolicyDocument(status: PROCESSING)`.
 3. Extract text (same `pdf-parse` path as evidence, or read directly for text/markdown).
 4. Chunk (~800 tokens per chunk, ~100 token overlap between consecutive chunks).
-5. Embed each chunk via `text-embedding-3-small`; write `PolicyChunk` rows.
+5. Embed each chunk locally via `all-MiniLM-L6-v2` (`@xenova/transformers`, in-process — no
+   network call); write `PolicyChunk` rows.
 6. Flip `status` to `READY`, or `FAILED` if extraction/embedding errors (failure reason logged
    server-side, not stored on the row — matches the "don't store secrets/noise on the model"
    style already in place elsewhere).
@@ -221,14 +238,18 @@ there's no queue infrastructure to hand it off to.
 **Running an analysis:** `POST /gap-analysis/run`
 
 For each of the tenant's 18 controls:
-1. Embed the control's own description (cached per tenant — static input, no reason to re-embed
-   every run).
+1. Embed the control's own description locally (cached per tenant — static input, no reason to
+   re-embed every run, and free either way since it's a local model call).
 2. pgvector cosine-similarity search (`<=>` operator) over that tenant's `PolicyChunk` rows,
    top 5 matches.
-3. One LLM call: control text + the 5 candidate chunks → "does this evidence support that the
-   control is addressed? If yes, which chunk index most directly supports it?" → structured
-   `{ covered: boolean, reasoning: string, citedChunkIndex: number | null }`.
+3. One Claude call: control text + the 5 candidate chunks → "does this evidence support that the
+   control is addressed? If yes, which chunk index most directly supports it?" → structured via a
+   forced tool call: `{ covered: boolean, reasoning: string, citedChunkIndex: number | null }`.
 4. Write one `GapAnalysisResult` row.
+
+Model: `claude-sonnet-5` for coverage checks — this is the reasoning-heavy half of the two
+features (judging whether prose policy language actually addresses a control's intent), so it
+gets the stronger model; classification is comparatively closer to a lookup and stays on Haiku.
 
 All 18 calls run under a small concurrency cap (`Promise.all` batched, e.g. 4 at a time — not
 strictly sequential, not unbounded parallel), grouped under one `GapAnalysisRun`.
@@ -259,7 +280,8 @@ across a multi-instance deployment; Redis is the future fix, not built now).
 
 `AiProvider` interface, one real implementation and one fake, selected via a DI token
 (`AI_PROVIDER`) — the same shape the project already uses for `ObjectStorageService` pointing at
-Neon's S3-compatible storage rather than real AWS:
+Neon's S3-compatible storage rather than real AWS. The interface shape is unchanged by the
+provider swap — it was already provider-agnostic:
 
 ```ts
 interface AiProvider {
@@ -271,18 +293,25 @@ interface AiProvider {
 }
 ```
 
-- `OpenAiProvider` — real implementation, calls the OpenAI API (chat completions with
-  structured/JSON-schema output for vision + text classification and coverage checks;
-  `text-embedding-3-small` for `embed`).
-- `FakeAiProvider` — deterministic, no network calls, used in unit and e2e tests. Returns
-  fixture-driven responses (e.g. keyed by a marker string in the input) so tests can assert on
-  specific classification/coverage outcomes without hitting a real API — this preserves the
-  suite's stability work from the previous phase (capped workers, no flakiness from external
-  latency, no real API cost per test run).
+- `ClaudeAiProvider` — real implementation. `classifyEvidence` and `checkControlCoverage` call the
+  Anthropic Messages API (`@anthropic-ai/sdk`) with a forced single-tool call for structured output
+  (`claude-haiku-4-5-20251001` for classification, `claude-sonnet-5` for coverage checks — see
+  sections B/C for why they differ). `embed` calls a local `@xenova/transformers` pipeline
+  (`all-MiniLM-L6-v2`, mean-pooled + normalized to match cosine similarity) — no network call, no
+  API key, no per-call cost. The pipeline is loaded once (module singleton) and reused across
+  calls; first call in a process pays a one-time model-download/load cost.
+- `FakeAiProvider` — deterministic, no network calls and no local model load, used in unit and e2e
+  tests. Returns fixture-driven responses (e.g. keyed by a marker string in the input, and a
+  deterministic pseudo-embedding derived from the input text's hash rather than a real model) so
+  tests can assert on specific classification/coverage/similarity outcomes without hitting a real
+  API or loading a ~90MB model per test run — this preserves the suite's stability work from the
+  previous phase (capped workers, no flakiness from external latency, no real API cost per test
+  run, and no slow model download in CI).
 
-`OPENAI_API_KEY` is a single environment variable, not Neon-branch-scoped (unlike the database and
-object-storage credentials) — both `test` and `production` point at the same OpenAI account, but
-tests never call it, since `FakeAiProvider` is what's wired in the test module.
+`ANTHROPIC_API_KEY` is a single environment variable, not Neon-branch-scoped (unlike the database
+and object-storage credentials) — both `test` and `production` point at the same Anthropic
+account, but tests never call it, since `FakeAiProvider` is what's wired in the test module. There
+is no embedding API key at all, since `embed()` never leaves the process.
 
 ## API surface summary
 
