@@ -4,6 +4,7 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { Role } from '@prisma/client';
 import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/configure-app';
 import { addMember, cleanupTenant, createTenant, TenantFixture } from './helpers/fixtures';
 
 describe('Tasks (e2e)', () => {
@@ -19,6 +20,7 @@ describe('Tasks (e2e)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleFixture.createNestApplication();
+    configureApp(app);
     await app.init();
 
     fixture = await createTenant(app.getHttpServer(), suffix);

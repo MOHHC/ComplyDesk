@@ -4,6 +4,7 @@ import { PrismaClient, Role } from '@prisma/client';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/configure-app';
 import { addMember, cleanupTenant, createTenant, ownerClient, TenantFixture } from './helpers/fixtures';
 
 /**
@@ -42,6 +43,7 @@ describe('Audit log (e2e)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleFixture.createNestApplication();
+    configureApp(app);
     await app.init();
     owner = ownerClient();
 

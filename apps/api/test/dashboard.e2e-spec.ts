@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/configure-app';
 import { cleanupTenant, createTenant, TenantFixture } from './helpers/fixtures';
 
 describe('Dashboard (e2e)', () => {
@@ -15,6 +16,7 @@ describe('Dashboard (e2e)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleFixture.createNestApplication();
+    configureApp(app);
     await app.init();
 
     fixture = await createTenant(app.getHttpServer(), suffix);

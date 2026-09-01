@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Role } from '@prisma/client';
 import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/configure-app';
 import { addMember, cleanupTenant, createTenant, TenantFixture } from './helpers/fixtures';
 
 describe('Controls (e2e)', () => {
@@ -22,6 +23,7 @@ describe('Controls (e2e)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleFixture.createNestApplication();
+    configureApp(app);
     await app.init();
 
     fixture = await createTenant(app.getHttpServer(), suffix);

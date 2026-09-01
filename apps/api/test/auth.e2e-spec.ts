@@ -5,6 +5,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/configure-app';
 
 describe('Auth (e2e)', () => {
   let app: INestApplication;
@@ -29,6 +30,7 @@ describe('Auth (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    configureApp(app);
     await app.init();
   });
 
@@ -171,6 +173,62 @@ describe('Auth (e2e)', () => {
     await owner.tenant.deleteMany({ where: { slug: otherSlug } });
     await owner.user.deleteMany({ where: { email: `other-${email}` } });
   }, 20000);
+
+  it('logs in with a different email case than was used at signup', async () => {
+    // Regression test: signup stored the email exactly as typed
+    // ("Case-...@example.com") with no normalization anywhere, and
+    // Postgres text equality is case-sensitive, so a login attempt with
+    // different casing (e.g. a mobile keyboard autocapitalizing one field
+    // and not the other) found zero rows and failed with the same
+    // generic "Invalid email or password" as a wrong password — a real
+    // signup-then-login failure that looked like a bcrypt bug but was
+    // actually the lookup itself never finding the row.
+    const server = app.getHttpServer();
+    const caseSlug = `case-${slug}`;
+    const mixedCaseEmail = `Case-${email}`;
+
+    await request(server)
+      .post('/auth/signup')
+      .set('Host', `${caseSlug}.localhost`)
+      .send({
+        email: mixedCaseEmail,
+        password: 'password123',
+        name: 'Case Sensitivity',
+        tenantName: 'Case Sensitivity Co',
+        tenantSlug: caseSlug,
+      })
+      .expect(201);
+
+    const loginRes = await request(server)
+      .post('/auth/login')
+      .set('Host', `${caseSlug}.localhost`)
+      .send({ email: mixedCaseEmail.toLowerCase(), password: 'password123' })
+      .expect(201);
+
+    expect(loginRes.body.accessToken).toEqual(expect.any(String));
+
+    // The duplicate-email check at signup must catch the same email in
+    // a different case too, not just an exact string match.
+    await request(server)
+      .post('/auth/signup')
+      .set('Host', `${caseSlug}.localhost`)
+      .send({
+        email: mixedCaseEmail.toUpperCase(),
+        password: 'password123',
+        name: 'Duplicate Case',
+        tenantName: 'Duplicate Case Co',
+        tenantSlug: `dup-${caseSlug}`,
+      })
+      .expect(409);
+
+    const stored = await owner.user.findUnique({
+      where: { email: mixedCaseEmail.toLowerCase() },
+    });
+    expect(stored?.email).toBe(mixedCaseEmail.toLowerCase());
+
+    await owner.tenant.deleteMany({ where: { slug: caseSlug } });
+    await owner.user.deleteMany({ where: { email: mixedCaseEmail.toLowerCase() } });
+  }, 15000);
 
   it('rejects signup when the email is already registered', async () => {
     const server = app.getHttpServer();
