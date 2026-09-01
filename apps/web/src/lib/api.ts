@@ -8,6 +8,7 @@ import type {
   Member,
   ReadinessSummary,
   SignupInput,
+  SignupResponse,
   Task,
   TaskStatus,
   WorkspaceSummary,
@@ -74,8 +75,8 @@ async function requestMultipart<T>(
   return handleResponse<T>(res, path);
 }
 
-export function signup(input: SignupInput): Promise<AuthResponse> {
-  return request<AuthResponse>('/auth/signup', { method: 'POST', body: input });
+export function signup(input: SignupInput): Promise<SignupResponse> {
+  return request<SignupResponse>('/auth/signup', { method: 'POST', body: input });
 }
 
 export function login(input: LoginInput): Promise<AuthResponse> {

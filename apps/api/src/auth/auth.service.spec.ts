@@ -77,7 +77,15 @@ describe('AuthService', () => {
       // The user row is inserted raw (no RETURNING) so the SELECT policy
       // can't reject it before its Membership exists.
       expect(prisma.user.create).toBeUndefined();
-      expect(result).toEqual({ accessToken: 'signed-token' });
+      // Returns the tenant it created, not just a token: the web client
+      // builds its post-signup redirect from this slug rather than from
+      // its own form state, so the server's answer has to be present and
+      // authoritative.
+      expect(result).toEqual({
+        accessToken: 'signed-token',
+        tenantId: createdTenant.id,
+        tenantSlug: 'acme',
+      });
     });
 
     it('seeds the tenant with every control from SeedControlsService', async () => {

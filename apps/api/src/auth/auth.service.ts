@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import type { WorkspaceSummary } from '@complydesk/shared';
+import type { SignupResponse, WorkspaceSummary } from '@complydesk/shared';
 import { ClsService } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
@@ -36,7 +36,7 @@ export class AuthService {
     private readonly seedControls: SeedControlsService,
   ) {}
 
-  async signup(dto: SignupDto): Promise<{ accessToken: string }> {
+  async signup(dto: SignupDto): Promise<SignupResponse> {
     // User is RLS-protected for SELECT and this check runs before any
     // tenant exists, so it goes through the SECURITY DEFINER helper (see
     // the rls_tenant_and_user migration) rather than a direct read.
@@ -134,7 +134,15 @@ export class AuthService {
       throw err;
     }
 
-    return { accessToken: this.jwt.sign({ sub: userId }) };
+    // Returns the tenant it actually created, not an echo of the request:
+    // the client builds its redirect from this, so if the slug is ever
+    // normalized or deduplicated server-side, the browser still lands on
+    // the workspace that exists rather than the one that was asked for.
+    return {
+      accessToken: this.jwt.sign({ sub: userId }),
+      tenantId,
+      tenantSlug: dto.tenantSlug,
+    };
   }
 
   /**

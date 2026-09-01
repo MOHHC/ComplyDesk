@@ -230,6 +230,86 @@ describe('Auth (e2e)', () => {
     await owner.user.deleteMany({ where: { email: mixedCaseEmail.toLowerCase() } });
   });
 
+  it('returns the tenant it actually created, normalized, not an echo of the request', async () => {
+    // The redirect after signup is built from this slug. If the response
+    // echoed the submitted value instead of the stored one, a server-side
+    // normalization (or a future dedup) would silently send new users to
+    // a subdomain resolving to a different workspace — a 403 on /auth/me
+    // and a 401 on any later login, both of which look like a bad password.
+    const server = app.getHttpServer();
+    const typedSlug = `Mixed-${slug}`.toUpperCase();
+    const storedSlug = typedSlug.toLowerCase();
+    const caseEmail = `slugcase-${email}`;
+
+    const res = await request(server)
+      .post('/auth/signup')
+      .set('Host', `${slug}.localhost`)
+      .send({
+        email: caseEmail,
+        password: 'password123',
+        name: 'Slug Case',
+        tenantName: 'Slug Case Co',
+        tenantSlug: typedSlug,
+      })
+      .expect(201);
+
+    // Differs from what was submitted — this is the whole point.
+    expect(res.body.tenantSlug).toBe(storedSlug);
+    expect(res.body.tenantSlug).not.toBe(typedSlug);
+    expect(res.body.tenantId).toEqual(expect.any(String));
+
+    // And the returned slug is the one that actually resolves a tenant.
+    const meRes = await request(server)
+      .get('/auth/me')
+      .set('Host', 'localhost:3001')
+      .set('X-Tenant-Slug', res.body.tenantSlug)
+      .set('Authorization', `Bearer ${res.body.accessToken}`)
+      .expect(200);
+    expect(meRes.body.tenantId).toBe(res.body.tenantId);
+
+    await owner.tenant.deleteMany({ where: { slug: storedSlug } });
+    await owner.user.deleteMany({ where: { email: caseEmail } });
+  });
+
+  it('refuses a slug that is already taken rather than silently altering it', async () => {
+    // There is no server-side deduplication: a collision is a 409 and no
+    // account is created. Pinned so that if dedup is ever added, this
+    // test forces the redirect contract to be revisited deliberately.
+    const server = app.getHttpServer();
+    const takenSlug = `taken-${slug}`;
+
+    await request(server)
+      .post('/auth/signup')
+      .set('Host', `${slug}.localhost`)
+      .send({
+        email: `first-${email}`,
+        password: 'password123',
+        name: 'First',
+        tenantName: 'First Co',
+        tenantSlug: takenSlug,
+      })
+      .expect(201);
+
+    await request(server)
+      .post('/auth/signup')
+      .set('Host', `${slug}.localhost`)
+      .send({
+        email: `second-${email}`,
+        password: 'password123',
+        name: 'Second',
+        tenantName: 'Second Co',
+        tenantSlug: takenSlug,
+      })
+      .expect(409);
+
+    // The collision must not have created a second tenant.
+    const tenants = await owner.tenant.findMany({ where: { slug: takenSlug } });
+    expect(tenants).toHaveLength(1);
+
+    await owner.tenant.deleteMany({ where: { slug: takenSlug } });
+    await owner.user.deleteMany({ where: { email: `first-${email}` } });
+  });
+
   it('rejects signup when the email is already registered', async () => {
     const server = app.getHttpServer();
 

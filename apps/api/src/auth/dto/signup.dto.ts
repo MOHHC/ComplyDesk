@@ -36,6 +36,13 @@ export class SignupDto implements SignupInput {
   @MinLength(1)
   tenantName: string;
 
+  // Normalized before validation, same as email above: without this,
+  // typing "MyCompany" as a workspace URL fails @Matches outright with a
+  // 400 rather than simply becoming "mycompany". It also means the slug
+  // the server stores can legitimately differ from the one submitted,
+  // which is exactly why the client must build its redirect from the
+  // slug in the signup *response* rather than from its own form state.
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
   @IsString()
   @Matches(/^[a-z0-9-]+$/, {
     message: 'tenantSlug must be lowercase letters, numbers, and hyphens only',
