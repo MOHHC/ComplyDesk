@@ -299,7 +299,11 @@ interface AiProvider {
   sections B/C for why they differ). `embed` calls a local `@xenova/transformers` pipeline
   (`all-MiniLM-L6-v2`, mean-pooled + normalized to match cosine similarity) — no network call, no
   API key, no per-call cost. The pipeline is loaded once (module singleton) and reused across
-  calls; first call in a process pays a one-time model-download/load cost.
+  calls. Model weights (~90MB) are bundled into the repo/build at development time (e.g. a
+  `postinstall`/setup script that downloads them once into a checked-in or build-artifact path)
+  rather than fetched from Hugging Face at runtime — `@xenova/transformers` is configured with
+  `env.allowRemoteModels = false` and a local `env.localModelPath`, so a process with no network
+  access still loads the model on first use.
 - `FakeAiProvider` — deterministic, no network calls and no local model load, used in unit and e2e
   tests. Returns fixture-driven responses (e.g. keyed by a marker string in the input, and a
   deterministic pseudo-embedding derived from the input text's hash rather than a real model) so
