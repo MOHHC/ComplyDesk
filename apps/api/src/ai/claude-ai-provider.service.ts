@@ -7,6 +7,7 @@ import {
   ControlSummary,
   CoverageResult,
 } from './ai-provider.interface';
+import { embedWithPipeline, getLocalEmbeddingPipeline } from './local-embedding';
 
 const CLASSIFICATION_MODEL = 'claude-haiku-4-5-20251001';
 const COVERAGE_MODEL = 'claude-sonnet-5';
@@ -44,13 +45,8 @@ function describeControls(controls: ControlSummary[]): string {
   return controls.map((c) => `- ${c.code}: ${c.title} — ${c.description}`).join('\n');
 }
 
-/**
- * Real reasoning implementation. embed() is intentionally not
- * implemented here — see LocalEmbeddingService (Task 5), mixed in via
- * composition so this class's tests never need to load a real model.
- */
 @Injectable()
-export class ClaudeAiProvider implements Pick<AiProvider, 'classifyEvidence' | 'checkControlCoverage'> {
+export class ClaudeAiProvider implements AiProvider {
   private readonly client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   async classifyEvidence(input: {
@@ -88,6 +84,11 @@ export class ClaudeAiProvider implements Pick<AiProvider, 'classifyEvidence' | '
       (block): block is Anthropic.Messages.ToolUseBlock => block.type === 'tool_use',
     );
     return toolUse?.input as ClassificationResult;
+  }
+
+  async embed(text: string): Promise<number[]> {
+    const pipeline = await getLocalEmbeddingPipeline();
+    return embedWithPipeline(pipeline, text);
   }
 
   async checkControlCoverage(input: {
