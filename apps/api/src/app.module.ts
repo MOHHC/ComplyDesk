@@ -13,6 +13,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { MembersModule } from './members/members.module';
 import { AuditModule } from './audit/audit.module';
+import { PolicyDocumentsModule } from './policy-documents/policy-documents.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AuditModule } from './audit/audit.module';
     // Registers AuditInterceptor globally (APP_INTERCEPTOR) so every
     // controller gets audit coverage without remembering to add it.
     AuditModule,
+    PolicyDocumentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
