@@ -14,6 +14,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { MembersModule } from './members/members.module';
 import { AuditModule } from './audit/audit.module';
 import { PolicyDocumentsModule } from './policy-documents/policy-documents.module';
+import { GapAnalysisModule } from './gap-analysis/gap-analysis.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { PolicyDocumentsModule } from './policy-documents/policy-documents.modul
     // controller gets audit coverage without remembering to add it.
     AuditModule,
     PolicyDocumentsModule,
+    GapAnalysisModule,
   ],
   controllers: [AppController],
   providers: [AppService],
