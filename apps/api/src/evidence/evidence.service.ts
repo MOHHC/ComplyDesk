@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppClsStore } from '../common/cls-keys';
@@ -7,6 +7,8 @@ import { EvidenceClassificationService } from './evidence-classification.service
 
 @Injectable()
 export class EvidenceService {
+  private readonly logger = new Logger(EvidenceService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cls: ClsService<AppClsStore>,
@@ -59,10 +61,16 @@ export class EvidenceService {
     let classificationRow = null;
     try {
       classificationRow = await this.classification.classify(evidence.id, controlId, file.buffer, file.mimetype);
-    } catch {
+    } catch (error) {
       // Best-effort: classification failing must never fail the upload
       // that already succeeded. No retry — the review endpoint has
       // nothing to review until a future upload succeeds in classifying.
+      this.logger.error(
+        `Evidence classification failed for evidenceId=${evidence.id} controlId=${controlId} tenantId=${tenantId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
     }
 
     return { ...evidence, classification: classificationRow };

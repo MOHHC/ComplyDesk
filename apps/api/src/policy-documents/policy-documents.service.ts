@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppClsStore } from '../common/cls-keys';
@@ -12,6 +12,8 @@ const ACCEPTED_MIME_TYPES = new Set(['application/pdf', 'text/plain', 'text/mark
 
 @Injectable()
 export class PolicyDocumentsService {
+  private readonly logger = new Logger(PolicyDocumentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cls: ClsService<AppClsStore>,
@@ -63,7 +65,13 @@ export class PolicyDocumentsService {
       }
 
       return tx.policyDocument.update({ where: { id: document.id }, data: { status: 'READY' } });
-    } catch {
+    } catch (error) {
+      this.logger.error(
+        `Policy document processing failed for documentId=${document.id} tenantId=${tenantId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
       return tx.policyDocument.update({ where: { id: document.id }, data: { status: 'FAILED' } });
     }
   }
