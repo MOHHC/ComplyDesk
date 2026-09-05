@@ -5,6 +5,11 @@ export interface ControlSummary {
 }
 
 export interface ChunkSummary {
+  // Position of this chunk within the candidate list passed to
+  // checkControlCoverage, NOT a document-relative chunk id — a
+  // document-relative index is ambiguous once more than one document
+  // contributes candidates (every document's chunks restart at 0).
+  // CoverageResult.citedChunkIndex is expected back in these same terms.
   index: number;
   content: string;
 }

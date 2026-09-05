@@ -90,13 +90,22 @@ export class GapAnalysisService {
         LIMIT ${TOP_K_CHUNKS}
       `;
 
+      // candidateChunks is numbered by *position in this list*, not by
+      // the candidates' document-relative `chunkIndex` column: chunkIndex
+      // restarts at 0 for every PolicyDocument (see
+      // PolicyDocumentsService.upload's per-document loop), so with two
+      // or more policy documents the top-K candidates can contain
+      // multiple chunks sharing the same chunkIndex value, making that
+      // value ambiguous as a citation key. Position in this array is
+      // unambiguous by construction, and ChunkSummary.index is
+      // documented as exactly that.
       const coverage = await this.ai.checkControlCoverage({
         control: { code: control.code, title: control.title, description: control.description },
-        candidateChunks: candidates.map((c) => ({ index: c.chunkIndex, content: c.content })),
+        candidateChunks: candidates.map((c, i) => ({ index: i, content: c.content })),
       });
 
       const citedChunk = coverage.citedChunkIndex !== null
-        ? candidates.find((c) => c.chunkIndex === coverage.citedChunkIndex)
+        ? candidates[coverage.citedChunkIndex]
         : undefined;
 
       return tx.gapAnalysisResult.create({

@@ -15,8 +15,10 @@ import {
  *  - embed: a fixed-length pseudo-embedding derived from a simple string
  *    hash, so identical text always embeds identically.
  *  - checkControlCoverage: a control description containing
- *    "COVERED:<chunkIndex>" is reported covered, citing that chunk index;
- *    otherwise not covered.
+ *    "COVERED:<n>" is reported covered, citing candidate position <n> —
+ *    i.e. `n` is an index into the `candidateChunks` array passed in
+ *    (ChunkSummary.index), not any document-relative chunk id; otherwise
+ *    not covered.
  */
 @Injectable()
 export class FakeAiProvider implements AiProvider {

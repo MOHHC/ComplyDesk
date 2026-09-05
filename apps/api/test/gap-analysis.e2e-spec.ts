@@ -103,7 +103,7 @@ describe('Gap analysis (e2e)', () => {
         .expect(200);
       const coveredControl = controlsRes.body[0];
       const contrastControl = controlsRes.body[1];
-      const steeredDescription = `${coveredControl.description} COVERED:1`;
+      const steeredDescription = `${coveredControl.description} COVERED:0`;
 
       // GapAnalysisService.run() embeds *this exact string*
       // (control.description, after our update below) as the pgvector
@@ -121,9 +121,11 @@ describe('Gap analysis (e2e)', () => {
       const owner = ownerClient();
       try {
         // Steer FakeAiProvider.checkControlCoverage to report this
-        // control covered, citing chunk index 1 — see
-        // fake-ai-provider.service.ts's documented "COVERED:<chunkIndex>"
-        // convention (matched against the *control's own description*).
+        // control covered, citing candidate *position* 0 — see
+        // fake-ai-provider.service.ts's documented "COVERED:<n>"
+        // convention (matched against the *control's own description*;
+        // `n` is a position in GapAnalysisService's candidate list, not
+        // any document-relative chunk id — see gap-analysis.service.ts).
         // A direct DB write via the owner connection is the same
         // legitimate fixture-setup pattern helpers/fixtures.ts's
         // addMember already uses: it edits this test's own tenant's
@@ -141,18 +143,26 @@ describe('Gap analysis (e2e)', () => {
         // order real document chunks the way we want; instead the
         // embeddings are engineered so the outcome is unambiguous by
         // construction:
-        //  - chunk 0 ("distractor"): embedding = queryVector negated ->
-        //    the mathematically farthest possible candidate.
-        //  - chunk 1 (the one we cite): embedding = queryVector itself
-        //    -> the mathematically nearest possible candidate (distance
-        //    0), guaranteed to sort first regardless of how the ANN
-        //    index approximates the search.
-        // Citing chunkIndex 1 while it is the *first* (position 0)
-        // candidate in the distance-ordered result is exactly what makes
-        // this discriminate a correct `chunkIndex`-value lookup from a
-        // buggy array-position lookup: a position-based implementation
-        // resolving citedChunkIndex=1 would land on candidates[1], i.e.
-        // chunk 0 (the distractor) or undefined -- not chunk 1.
+        //  - chunk0Id, stored with document-relative chunkIndex 0
+        //    ("distractor"): embedding = queryVector negated -> the
+        //    mathematically farthest possible candidate, so it sorts
+        //    LAST (position 1) in GapAnalysisService's candidate list.
+        //  - chunk1Id, stored with document-relative chunkIndex 1 (the
+        //    one we cite): embedding = queryVector itself -> the
+        //    mathematically nearest possible candidate (distance 0), so
+        //    it sorts FIRST (position 0), guaranteed regardless of how
+        //    the ANN index approximates the search.
+        // The stored chunkIndex column is deliberately the *inverse* of
+        // sorted position (row chunkIndex 0 -> position 1; row
+        // chunkIndex 1 -> position 0). Steering "COVERED:0" cites
+        // position 0, which the correct (position-based) implementation
+        // resolves to chunk1Id. A regression back to the old,
+        // now-incorrect scheme — resolving citedChunkIndex against the
+        // PolicyChunk row's stored `chunkIndex` column instead of
+        // candidate-list position — would instead resolve "0" to
+        // chunk0Id (the distractor): a different, wrong row. That
+        // mismatch is exactly what makes this test still discriminate
+        // the fix from the bug it replaced.
         const doc = await owner.policyDocument.create({
           data: {
             tenantId: covFixture.tenantId,
