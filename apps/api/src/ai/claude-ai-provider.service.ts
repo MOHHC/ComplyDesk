@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   AiProvider,
@@ -47,6 +47,7 @@ function describeControls(controls: ControlSummary[]): string {
 
 @Injectable()
 export class ClaudeAiProvider implements AiProvider {
+  private readonly logger = new Logger(ClaudeAiProvider.name);
   private readonly client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   async classifyEvidence(input: {
@@ -83,7 +84,18 @@ export class ClaudeAiProvider implements AiProvider {
     const toolUse = response.content.find(
       (block): block is Anthropic.Messages.ToolUseBlock => block.type === 'tool_use',
     );
-    return toolUse?.input as ClassificationResult;
+    if (!toolUse) {
+      // Forced tool_choice makes a missing tool_use block rare, but not
+      // impossible (max_tokens truncation mid-tool-use, an API-level
+      // refusal) — throw explicitly rather than casting `undefined` to
+      // ClassificationResult and handing the caller a value that lies
+      // about its own type. EvidenceService.upload already catches and
+      // logs classification failures without failing the upload itself.
+      throw new Error(
+        `Claude response for evidence classification contained no tool_use block (stop_reason=${response.stop_reason})`,
+      );
+    }
+    return toolUse.input as ClassificationResult;
   }
 
   async embed(text: string): Promise<number[]> {
@@ -111,6 +123,20 @@ export class ClaudeAiProvider implements AiProvider {
     const toolUse = response.content.find(
       (block): block is Anthropic.Messages.ToolUseBlock => block.type === 'tool_use',
     );
-    return toolUse?.input as CoverageResult;
+    if (!toolUse) {
+      // Unlike classifyEvidence, this path must not throw: it runs
+      // inside GapAnalysisService's runWithConcurrency loop, and an
+      // uncaught error here propagates out, 500s the whole
+      // /gap-analysis/run request, and discards every other control's
+      // already-computed result from a run that already spent most of
+      // the tenant's 5/hour rate budget. One bad response degrading to
+      // "coverage check unavailable" for that single control is far
+      // cheaper than losing the entire run.
+      this.logger.error(
+        `Claude response for control coverage check contained no tool_use block for control ${input.control.code} (stop_reason=${response.stop_reason})`,
+      );
+      return { covered: false, reasoning: 'coverage check unavailable', citedChunkIndex: null };
+    }
+    return toolUse.input as CoverageResult;
   }
 }

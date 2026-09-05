@@ -88,4 +88,50 @@ describe('ClaudeAiProvider', () => {
       expect.objectContaining({ model: 'claude-sonnet-5' }),
     );
   });
+
+  it('classifyEvidence throws when the response has no tool_use block', async () => {
+    // Forced tool_choice makes this rare (max_tokens truncation
+    // mid-tool-use, an API-level refusal) but not impossible. Casting
+    // undefined through `as ClassificationResult` would hand the caller
+    // a value that lies about its own shape; this path must throw
+    // instead so it surfaces as a caught, logged failure in
+    // EvidenceService.upload rather than a silent bad classification.
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'text', text: 'I cannot help with that.' }],
+      stop_reason: 'end_turn',
+    });
+
+    const provider = new ClaudeAiProvider();
+    await expect(
+      provider.classifyEvidence({
+        mimeType: 'text/plain',
+        content: 'we reviewed access quarterly',
+        controls,
+      }),
+    ).rejects.toThrow(/no tool_use block/);
+  });
+
+  it('checkControlCoverage falls back to a safe result when the response has no tool_use block', async () => {
+    // Unlike classifyEvidence, this path runs inside
+    // GapAnalysisService's runWithConcurrency loop: throwing here would
+    // 500 the whole /gap-analysis/run request and discard every other
+    // control's already-computed result. It must degrade to a safe
+    // per-control fallback instead.
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'text', text: 'I cannot help with that.' }],
+      stop_reason: 'end_turn',
+    });
+
+    const provider = new ClaudeAiProvider();
+    const result = await provider.checkControlCoverage({
+      control: { code: 'AC-01', title: 'Access reviews', description: 'Quarterly access reviews' },
+      candidateChunks: [{ index: 0, content: 'we review all access grants every quarter' }],
+    });
+
+    expect(result).toEqual({
+      covered: false,
+      reasoning: 'coverage check unavailable',
+      citedChunkIndex: null,
+    });
+  });
 });
