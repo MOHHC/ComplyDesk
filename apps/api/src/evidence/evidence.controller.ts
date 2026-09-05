@@ -17,7 +17,6 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../rbac/roles.guard';
 import { Roles } from '../rbac/roles.decorator';
 import { Audit } from '../audit/audit.decorator';
-import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import { TenantRateLimitGuard } from '../rate-limit/tenant-rate-limit.guard';
 import { EvidenceService } from './evidence.service';
 import { EvidenceClassificationService } from './evidence-classification.service';
@@ -42,7 +41,6 @@ export class EvidenceController {
       limits: { fileSize: MAX_FILE_SIZE_BYTES },
     }),
   )
-  @RateLimit('classification')
   @Audit({ action: 'evidence.upload', model: 'evidence' })
   upload(
     @Param('controlId') controlId: string,

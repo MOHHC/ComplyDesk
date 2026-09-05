@@ -36,6 +36,24 @@ export class TenantRateLimitGuard implements CanActivate {
     const tenantId = this.cls.get('tenantId');
     if (!tenantId) return true; // shouldn't happen behind JwtAuthGuard; RLS still protects data either way
 
+    if (!this.tryConsume(name, tenantId)) {
+      throw new HttpException(
+        `Too many ${name} requests for this workspace. Try again later.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    return true;
+  }
+
+  /**
+   * Non-throwing variant of the same fixed-window check, for call sites
+   * that must degrade rather than reject when the budget is spent — see
+   * EvidenceService.upload, which must never fail the upload itself
+   * just because the classification budget ran out. Returns false
+   * (without consuming anything further) once the window's count is
+   * already over the limit; true and increments the count otherwise.
+   */
+  tryConsume(name: RateLimitName, tenantId: string): boolean {
     const key = `${name}:${tenantId}`;
     const now = Date.now();
     this.pruneIfNeeded(now);
@@ -48,10 +66,7 @@ export class TenantRateLimitGuard implements CanActivate {
 
     entry.count += 1;
     if (entry.count > LIMITS[name]) {
-      throw new HttpException(
-        `Too many ${name} requests for this workspace. Try again later.`,
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      return false;
     }
     return true;
   }

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AppClsStore } from '../common/cls-keys';
 import { ObjectStorageService } from '../storage/object-storage.service';
 import { EvidenceClassificationService } from './evidence-classification.service';
+import { TenantRateLimitGuard } from '../rate-limit/tenant-rate-limit.guard';
 
 @Injectable()
 export class EvidenceService {
@@ -14,6 +15,7 @@ export class EvidenceService {
     private readonly cls: ClsService<AppClsStore>,
     private readonly storage: ObjectStorageService,
     private readonly classification: EvidenceClassificationService,
+    private readonly rateLimit: TenantRateLimitGuard,
   ) {}
 
   private tx() {
@@ -60,7 +62,20 @@ export class EvidenceService {
 
     let classificationRow = null;
     try {
-      classificationRow = await this.classification.classify(evidence.id, controlId, file.buffer, file.mimetype);
+      // The classification rate limit must degrade classification, not
+      // reject the upload: losing a customer's evidence file because an
+      // annotation budget ran out is wrong for a product whose core job
+      // is evidence collection (spec section B). When the tenant's
+      // hourly classification budget is spent, skip the AI call
+      // entirely and store no classification — same shape as the
+      // existing best-effort failure path below.
+      if (this.rateLimit.tryConsume('classification', tenantId)) {
+        classificationRow = await this.classification.classify(evidence.id, controlId, file.buffer, file.mimetype);
+      } else {
+        this.logger.warn(
+          `Skipping evidence classification for evidenceId=${evidence.id} controlId=${controlId} tenantId=${tenantId}: hourly classification rate limit reached`,
+        );
+      }
     } catch (error) {
       // Best-effort: classification failing must never fail the upload
       // that already succeeded. No retry — the review endpoint has
