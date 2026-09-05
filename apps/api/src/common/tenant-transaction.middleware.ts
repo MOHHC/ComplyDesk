@@ -19,6 +19,15 @@ import { setTenantContext } from './set-tenant-context';
  */
 @Injectable()
 export class TenantTransactionMiddleware implements NestMiddleware {
+  // Overridable by a subclass (see GapAnalysisTransactionMiddleware) so a
+  // specific route can get a longer transaction timeout without touching
+  // this class's own logic or every other route's behavior. Values are
+  // Prisma's $transaction options: `timeout` bounds the transaction body
+  // (everything from here through the route handler finishing); `maxWait`
+  // bounds how long Prisma waits for a pooled connection before the
+  // transaction even starts.
+  protected readonly transactionOptions = { timeout: 15000, maxWait: 10000 };
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cls: ClsService<AppClsStore>,
@@ -65,7 +74,7 @@ export class TenantTransactionMiddleware implements NestMiddleware {
             next();
           });
         },
-        { timeout: 15000, maxWait: 10000 },
+        this.transactionOptions,
       );
     } catch (err) {
       // Prisma already rolled back the transaction at this point — that

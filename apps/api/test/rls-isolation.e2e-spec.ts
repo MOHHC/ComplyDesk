@@ -36,6 +36,13 @@ describe('RLS tenant isolation (e2e)', () => {
   let evidenceB1: { id: string };
   let taskA1: { id: string };
   let taskB1: { id: string };
+  let policyDocA1: { id: string };
+  let policyDocB1: { id: string };
+  let policyChunkA1: { id: string };
+  let evidenceClassificationA1: { id: string };
+  let gapRunA1: { id: string };
+  let gapRunB1: { id: string };
+  let gapResultA1: { id: string };
 
   /** Runs `fn` inside a transaction scoped to `tenantId` via the same
    * SET LOCAL mechanism TenantTransactionMiddleware uses in the app. */
@@ -152,9 +159,83 @@ describe('RLS tenant isolation (e2e)', () => {
         data: { tenantId: tenantB.id, title: 'Tenant B task', assigneeId: userB.id },
       }),
     );
+
+    policyDocA1 = await asTenant(tenantA.id, (tx) =>
+      tx.policyDocument.create({
+        data: {
+          tenantId: tenantA.id,
+          fileKey: `${tenantA.id}/policy-docs/a1.txt`,
+          fileName: 'a1.txt',
+          mimeType: 'text/plain',
+          uploadedById: userA.id,
+          status: 'READY',
+        },
+      }),
+    );
+    policyDocB1 = await asTenant(tenantB.id, (tx) =>
+      tx.policyDocument.create({
+        data: {
+          tenantId: tenantB.id,
+          fileKey: `${tenantB.id}/policy-docs/b1.txt`,
+          fileName: 'b1.txt',
+          mimeType: 'text/plain',
+          uploadedById: userB.id,
+          status: 'READY',
+        },
+      }),
+    );
+
+    // PolicyChunk.embedding is Unsupported() in Prisma, so seed via raw
+    // SQL, same as the app's own write path.
+    await asTenant(tenantA.id, (tx) =>
+      tx.$executeRaw`
+        INSERT INTO "PolicyChunk" ("id", "tenantId", "documentId", "chunkIndex", "content", "embedding")
+        VALUES (gen_random_uuid()::text, ${tenantA.id}, ${policyDocA1.id}, 0, 'tenant A policy text', ${'[' + '0,'.repeat(383) + '0]'}::vector)
+      `,
+    );
+    policyChunkA1 = await asTenant(tenantA.id, (tx) =>
+      tx.policyChunk.findFirstOrThrow({ where: { documentId: policyDocA1.id } }),
+    );
+
+    evidenceClassificationA1 = await asTenant(tenantA.id, (tx) =>
+      tx.evidenceClassification.create({
+        data: {
+          tenantId: tenantA.id,
+          evidenceId: evidenceA1.id,
+          confidence: 0.5,
+          reasoning: 'seed',
+        },
+      }),
+    );
+
+    gapRunA1 = await asTenant(tenantA.id, (tx) =>
+      tx.gapAnalysisRun.create({ data: { tenantId: tenantA.id, runById: userA.id } }),
+    );
+    gapRunB1 = await asTenant(tenantB.id, (tx) =>
+      tx.gapAnalysisRun.create({ data: { tenantId: tenantB.id, runById: userB.id } }),
+    );
+    gapResultA1 = await asTenant(tenantA.id, (tx) =>
+      tx.gapAnalysisResult.create({
+        data: {
+          tenantId: tenantA.id,
+          runId: gapRunA1.id,
+          controlId: controlA1.id,
+          covered: false,
+          reasoning: 'seed',
+        },
+      }),
+    );
   }, 30000);
 
   afterAll(async () => {
+    // The five new AI-layer tables originally shipped without a
+    // tenantId -> Tenant FK (migration 20260901120000_ai_layer), which
+    // meant deleting the tenant here left them orphaned and this cleanup
+    // had to delete them explicitly. That gap is now closed by
+    // 20260901150000_ai_layer_tenant_fk (ON DELETE CASCADE, matching
+    // every pre-existing tenant-owned table), so deleting the tenant
+    // below cascades to all five tables the same way it already does for
+    // Control/Evidence/Task/Membership — no explicit cleanup needed here.
     await owner.tenant.deleteMany({ where: { id: { in: [tenantA.id, tenantB.id] } } });
     await owner.user.deleteMany({ where: { id: { in: [userA.id, userB.id] } } });
     await runtime.$disconnect();
@@ -233,6 +314,43 @@ describe('RLS tenant isolation (e2e)', () => {
 
       const stillThere = await owner.evidence.findUnique({ where: { id: evidenceB1.id } });
       expect(stillThere).not.toBeNull();
+    });
+  });
+
+  describe('INSERT forgery (WITH CHECK) on a pre-existing table', () => {
+    /**
+     * Neither the pre-existing Phase 3 probes above nor the Membership
+     * forgery test exercise a plain tenant-owned table's WITH CHECK: the
+     * only existing forged-INSERT probe targets Membership, which is a
+     * join table with its own auth semantics. This closes that hole for
+     * Control — under Tenant B's own context, attempt to plant a row
+     * stamped with Tenant A's tenantId. Only the tenantId is forged; every
+     * other field is Tenant B's own, so a rejection can only be the
+     * WITH CHECK clause, not an unrelated constraint. The message pattern
+     * is Postgres's actual RLS violation text (SQLSTATE 42501: "new row
+     * violates row-level security policy for table ..."), confirmed
+     * against this project's own error output rather than assumed — this
+     * turns "some error was thrown" into "this specific policy fired".
+     */
+    it('tenant B cannot create a Control row stamped with tenant A\'s tenantId', async () => {
+      await expect(
+        asTenant(tenantB.id, (tx) =>
+          tx.control.create({
+            data: {
+              tenantId: tenantA.id,
+              code: 'FORGED-01',
+              category: 'Access Control',
+              title: 'Forged into Tenant A',
+              description: 'd',
+              evidenceGuidance: 'g',
+              refreshIntervalDays: 90,
+            },
+          }),
+        ),
+      ).rejects.toThrow(/row-level security/i);
+
+      const leaked = await owner.control.findFirst({ where: { code: 'FORGED-01' } });
+      expect(leaked).toBeNull();
     });
   });
 
@@ -419,6 +537,209 @@ describe('RLS tenant isolation (e2e)', () => {
           { maxWait: 15000, timeout: 15000 },
         ),
       ).rejects.toThrow(/invalid input syntax for type uuid/);
+    });
+  });
+
+  describe('EvidenceClassification, PolicyDocument, PolicyChunk, GapAnalysisRun, GapAnalysisResult', () => {
+    it('tenant B cannot read tenant A policy documents, chunks, classifications, or gap analysis rows', async () => {
+      await asTenant(tenantB.id, async (tx) => {
+        expect(await tx.policyDocument.findUnique({ where: { id: policyDocA1.id } })).toBeNull();
+        expect(await tx.policyChunk.findUnique({ where: { id: policyChunkA1.id } })).toBeNull();
+        expect(
+          await tx.evidenceClassification.findUnique({ where: { id: evidenceClassificationA1.id } }),
+        ).toBeNull();
+        expect(await tx.gapAnalysisRun.findUnique({ where: { id: gapRunA1.id } })).toBeNull();
+        expect(await tx.gapAnalysisResult.findUnique({ where: { id: gapResultA1.id } })).toBeNull();
+      });
+    });
+
+    it('tenant B cannot update or delete tenant A rows in any of the five new tables', async () => {
+      // Both an UPDATE and a DELETE probe per table, using the singular
+      // .update()/.delete() form rather than updateMany/deleteMany: when
+      // RLS's USING clause hides the row, singular Prisma methods throw
+      // P2025 ("record not found") instead of silently affecting zero
+      // rows, which is the stronger assertion — a bug that turned USING
+      // into `true` would make these throw a *different* error (or none)
+      // rather than quietly reporting count: 0.
+      await asTenant(tenantB.id, async (tx) => {
+        await expect(
+          tx.policyDocument.update({ where: { id: policyDocA1.id }, data: { status: 'FAILED' } }),
+        ).rejects.toThrow();
+        await expect(tx.policyDocument.delete({ where: { id: policyDocA1.id } })).rejects.toThrow();
+
+        await expect(
+          tx.policyChunk.update({ where: { id: policyChunkA1.id }, data: { content: 'HIJACKED' } }),
+        ).rejects.toThrow();
+        await expect(tx.policyChunk.delete({ where: { id: policyChunkA1.id } })).rejects.toThrow();
+
+        await expect(
+          tx.evidenceClassification.update({
+            where: { id: evidenceClassificationA1.id },
+            data: { reviewStatus: 'DISMISSED' },
+          }),
+        ).rejects.toThrow();
+        await expect(
+          tx.evidenceClassification.delete({ where: { id: evidenceClassificationA1.id } }),
+        ).rejects.toThrow();
+
+        await expect(
+          tx.gapAnalysisRun.update({ where: { id: gapRunA1.id }, data: { runById: userB.id } }),
+        ).rejects.toThrow();
+        await expect(tx.gapAnalysisRun.delete({ where: { id: gapRunA1.id } })).rejects.toThrow();
+
+        await expect(
+          tx.gapAnalysisResult.update({ where: { id: gapResultA1.id }, data: { covered: true } }),
+        ).rejects.toThrow();
+        await expect(tx.gapAnalysisResult.delete({ where: { id: gapResultA1.id } })).rejects.toThrow();
+      });
+
+      // Ground truth: the rows are untouched, verified via the
+      // bypasses-RLS owner connection — never used to exercise
+      // isolation itself, only as an impartial check.
+      const stillReady = await owner.policyDocument.findUniqueOrThrow({ where: { id: policyDocA1.id } });
+      expect(stillReady.status).toBe('READY');
+
+      const stillChunk = await owner.policyChunk.findUniqueOrThrow({ where: { id: policyChunkA1.id } });
+      expect(stillChunk.content).toBe('tenant A policy text');
+
+      const stillPending = await owner.evidenceClassification.findUniqueOrThrow({
+        where: { id: evidenceClassificationA1.id },
+      });
+      expect(stillPending.reviewStatus).toBe('PENDING');
+
+      const stillRun = await owner.gapAnalysisRun.findUniqueOrThrow({ where: { id: gapRunA1.id } });
+      expect(stillRun.runById).toBe(userA.id);
+
+      const stillResult = await owner.gapAnalysisResult.findUniqueOrThrow({ where: { id: gapResultA1.id } });
+      expect(stillResult.covered).toBe(false);
+    });
+
+    it('tenant A can read its own rows in all five new tables (positive control)', async () => {
+      await asTenant(tenantA.id, async (tx) => {
+        expect(await tx.policyDocument.findUnique({ where: { id: policyDocA1.id } })).not.toBeNull();
+        expect(await tx.policyChunk.findUnique({ where: { id: policyChunkA1.id } })).not.toBeNull();
+        expect(
+          await tx.evidenceClassification.findUnique({ where: { id: evidenceClassificationA1.id } }),
+        ).not.toBeNull();
+        expect(await tx.gapAnalysisRun.findUnique({ where: { id: gapRunA1.id } })).not.toBeNull();
+        expect(await tx.gapAnalysisResult.findUnique({ where: { id: gapResultA1.id } })).not.toBeNull();
+      });
+    });
+
+    describe('INSERT forgery (WITH CHECK) — forged tenantId on each of the five new tables', () => {
+      /**
+       * The brief's probes above cover cross-tenant SELECT/UPDATE/DELETE
+       * plus a positive control, but not the sharper attack: tenant B,
+       * fully inside its own tenant context, attempting to plant a row
+       * stamped with tenant A's tenantId. That's exactly what the
+       * WITH CHECK half of each tenant_isolation policy exists to stop.
+       *
+       * Every foreign key in these forged rows points at Tenant B's own
+       * fixtures (never Tenant A's) so the *only* thing forged is the
+       * tenantId column — if one of these ever threw for a different
+       * reason (e.g. an invisible FK target), it wouldn't actually prove
+       * WITH CHECK works. Asserting on the rejection itself, not just a
+       * later read, matters here: a row that gets written and then
+       * disappears from view is a worse failure than one that never gets
+       * written at all.
+       *
+       * Each rejection is also matched against Postgres's actual RLS
+       * violation text (SQLSTATE 42501: "new row violates row-level
+       * security policy for table ..."), confirmed against this
+       * project's own error output rather than assumed. A generic
+       * `.rejects.toThrow()` would also pass for an unrelated error;
+       * matching the message demonstrates it's specifically WITH CHECK
+       * that fired.
+       */
+      it('rejects a forged EvidenceClassification claiming tenant A', async () => {
+        await expect(
+          asTenant(tenantB.id, (tx) =>
+            tx.evidenceClassification.create({
+              data: {
+                tenantId: tenantA.id,
+                evidenceId: evidenceB1.id,
+                confidence: 0.9,
+                reasoning: 'forged',
+              },
+            }),
+          ),
+        ).rejects.toThrow(/row-level security/i);
+
+        const leaked = await owner.evidenceClassification.findFirst({
+          where: { evidenceId: evidenceB1.id },
+        });
+        expect(leaked).toBeNull();
+      });
+
+      it('rejects a forged PolicyDocument claiming tenant A', async () => {
+        await expect(
+          asTenant(tenantB.id, (tx) =>
+            tx.policyDocument.create({
+              data: {
+                tenantId: tenantA.id,
+                fileKey: `${tenantB.id}/policy-docs/forged.txt`,
+                fileName: 'forged.txt',
+                mimeType: 'text/plain',
+                uploadedById: userB.id,
+                status: 'READY',
+              },
+            }),
+          ),
+        ).rejects.toThrow(/row-level security/i);
+
+        const leaked = await owner.policyDocument.findFirst({
+          where: { fileKey: `${tenantB.id}/policy-docs/forged.txt` },
+        });
+        expect(leaked).toBeNull();
+      });
+
+      it('rejects a forged PolicyChunk claiming tenant A (raw SQL insert path)', async () => {
+        await expect(
+          asTenant(tenantB.id, (tx) =>
+            tx.$executeRaw`
+              INSERT INTO "PolicyChunk" ("id", "tenantId", "documentId", "chunkIndex", "content", "embedding")
+              VALUES (gen_random_uuid()::text, ${tenantA.id}, ${policyDocB1.id}, 99, 'forged chunk', ${'[' + '0,'.repeat(383) + '0]'}::vector)
+            `,
+          ),
+        ).rejects.toThrow(/row-level security/i);
+
+        const leaked = await owner.policyChunk.findFirst({
+          where: { documentId: policyDocB1.id, chunkIndex: 99 },
+        });
+        expect(leaked).toBeNull();
+      });
+
+      it('rejects a forged GapAnalysisRun claiming tenant A', async () => {
+        await expect(
+          asTenant(tenantB.id, (tx) =>
+            tx.gapAnalysisRun.create({ data: { tenantId: tenantA.id, runById: userB.id } }),
+          ),
+        ).rejects.toThrow(/row-level security/i);
+
+        const leaked = await owner.gapAnalysisRun.findFirst({
+          where: { runById: userB.id, tenantId: tenantA.id },
+        });
+        expect(leaked).toBeNull();
+      });
+
+      it('rejects a forged GapAnalysisResult claiming tenant A', async () => {
+        await expect(
+          asTenant(tenantB.id, (tx) =>
+            tx.gapAnalysisResult.create({
+              data: {
+                tenantId: tenantA.id,
+                runId: gapRunB1.id,
+                controlId: controlB1.id,
+                covered: true,
+                reasoning: 'forged',
+              },
+            }),
+          ),
+        ).rejects.toThrow(/row-level security/i);
+
+        const leaked = await owner.gapAnalysisResult.findFirst({ where: { runId: gapRunB1.id } });
+        expect(leaked).toBeNull();
+      });
     });
   });
 });

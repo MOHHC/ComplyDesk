@@ -8,3 +8,4 @@ dist/
 .env.*.local
 *.log
 .playwright-mcp/
+apps/api/models/

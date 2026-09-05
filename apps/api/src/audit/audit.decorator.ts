@@ -6,7 +6,7 @@ export interface AuditOptions {
   /** Prisma delegate name (lowercase) to read a before/after diff from,
    * e.g. "task", "evidence". Omit for actions with no natural row to
    * diff (auth.login) — those get a generic entry instead. */
-  model?: 'task' | 'evidence' | 'control' | 'membership';
+  model?: 'task' | 'evidence' | 'control' | 'membership' | 'evidenceClassification';
   /** Route param holding the target's id, for reading the "before" state
    * ahead of the handler running. Defaults to "id". Irrelevant for
    * creates, which have no id until the handler returns one. */
