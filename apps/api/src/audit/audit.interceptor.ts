@@ -2,6 +2,7 @@ import {
   CallHandler,
   ExecutionContext,
   Injectable,
+  Logger,
   NestInterceptor,
 } from '@nestjs/common';
 import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
@@ -36,6 +37,8 @@ const DEFAULT_ID_PARAM = 'id';
  */
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(AuditInterceptor.name);
+
   constructor(
     private readonly reflector: Reflector,
     private readonly cls: ClsService<AppClsStore>,
@@ -119,6 +122,17 @@ export class AuditInterceptor implements NestInterceptor {
     }
   }
 
+  /**
+   * Best-effort by design: the audit log is a secondary concern relative
+   * to the mutation it's recording (same principle as the classification
+   * and rate-limit degrade paths elsewhere in this branch). A failure
+   * here (e.g. the tenant transaction dying underneath a slow request,
+   * see finding 8's fix) must never surface as a failure of the request
+   * itself — including the catchError branch, whose job is to let the
+   * handler's *original* error reach the client even if the audit write
+   * about that error also fails. So this never throws; it logs and
+   * swallows.
+   */
   private async write(
     tx: Record<string, any>,
     req: Request,
@@ -127,36 +141,48 @@ export class AuditInterceptor implements NestInterceptor {
     result: unknown,
     statusCode: number,
   ): Promise<void> {
-    const tenantId = this.cls.get('tenantId');
-    if (!tenantId) return;
+    try {
+      const tenantId = this.cls.get('tenantId');
+      if (!tenantId) return;
 
-    const action = options?.action ?? `${req.method} ${req.route?.path ?? req.path}`;
-    const after =
-      result && typeof result === 'object' ? (result as Record<string, unknown>) : null;
-    const targetType = options?.model
-      ? options.model.charAt(0).toUpperCase() + options.model.slice(1)
-      : (req.route?.path?.split('/')[1] ?? 'unknown');
-    const targetId =
-      req.params?.[options?.idParam ?? DEFAULT_ID_PARAM] ?? (after?.id as string | undefined);
+      const action = options?.action ?? `${req.method} ${req.route?.path ?? req.path}`;
+      const after =
+        result && typeof result === 'object' ? (result as Record<string, unknown>) : null;
+      const targetType = options?.model
+        ? options.model.charAt(0).toUpperCase() + options.model.slice(1)
+        : (req.route?.path?.split('/')[1] ?? 'unknown');
+      const targetId =
+        req.params?.[options?.idParam ?? DEFAULT_ID_PARAM] ?? (after?.id as string | undefined);
 
-    const diff = options?.model
-      ? diffRows(before, after)
-      : req.body && Object.keys(req.body).length > 0
-        ? { body: { before: null, after: redactBody(req.body) } }
-        : null;
+      const diff = options?.model
+        ? diffRows(before, after)
+        : req.body && Object.keys(req.body).length > 0
+          ? { body: { before: null, after: redactBody(req.body) } }
+          : null;
 
-    await tx.auditEvent.create({
-      data: {
-        tenantId,
-        actorUserId: this.cls.get('userId') ?? null,
-        action,
-        targetType,
-        targetId: targetId ?? null,
-        diff: diff ?? undefined,
-        method: req.method,
-        path: req.route?.path ?? req.path,
-        statusCode,
-      },
-    });
+      await tx.auditEvent.create({
+        data: {
+          tenantId,
+          actorUserId: this.cls.get('userId') ?? null,
+          action,
+          targetType,
+          targetId: targetId ?? null,
+          diff: diff ?? undefined,
+          method: req.method,
+          path: req.route?.path ?? req.path,
+          statusCode,
+        },
+      });
+    } catch (error) {
+      // Best-effort: an audit-write failure must never fail the request
+      // it's describing, nor mask the original error the catchError
+      // branch is trying to propagate.
+      this.logger.error(
+        `Audit write failed for ${req.method} ${req.route?.path ?? req.path}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 }
