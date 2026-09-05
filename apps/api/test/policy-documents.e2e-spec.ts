@@ -6,7 +6,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/configure-app';
 import { AI_PROVIDER } from '../src/ai/ai-provider.token';
 import { FakeAiProvider } from '../src/ai/fake-ai-provider.service';
-import { createTenant, cleanupTenant, TenantFixture } from './helpers/fixtures';
+import { createTenant, cleanupTenant, ownerClient, TenantFixture } from './helpers/fixtures';
 
 describe('Policy documents (e2e)', () => {
   let app: INestApplication;
@@ -45,6 +45,16 @@ describe('Policy documents (e2e)', () => {
       .set('Authorization', `Bearer ${fixture.ownerToken}`)
       .expect(200);
     expect(list.body.some((d: { id: string }) => d.id === res.body.id)).toBe(true);
+
+    // Prove the chunk/embed loop actually ran and persisted rows, not
+    // just that the document status flipped to READY.
+    const owner = ownerClient();
+    try {
+      const chunkCount = await owner.policyChunk.count({ where: { documentId: res.body.id } });
+      expect(chunkCount).toBeGreaterThan(0);
+    } finally {
+      await owner.$disconnect();
+    }
   });
 
   it('rejects an unsupported file type', async () => {

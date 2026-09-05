@@ -68,6 +68,11 @@ describe('Gap analysis (e2e)', () => {
       expect(result).toHaveProperty('covered');
       expect(result).toHaveProperty('reasoning');
       expect(result.control).toBeTruthy();
+      // Proves chunkCount > 0 for this tenant: the "No policy documents
+      // uploaded" short-circuit only fires when chunkCount === 0, so this
+      // assertion would fail if the chunk/embed loop in
+      // PolicyDocumentsService never wrote any PolicyChunk rows.
+      expect(result.reasoning).not.toBe('No policy documents uploaded');
     }
 
     const latest = await request(app.getHttpServer())
