@@ -19,6 +19,10 @@ import { createTenant, cleanupTenant, TenantFixture } from './helpers/fixtures';
  * PrismaService.$transaction (through the real AppModule wiring, real
  * middleware stack, real DB) and asserts which options object each
  * route's request actually opened its transaction with.
+ *
+ * Extended to cover the same wiring for POST /policy-documents (fix-wave
+ * finding 6): that route also needs a longer timeout than the 15s/10s
+ * default, via its own PolicyDocumentsTransactionMiddleware.
  */
 describe('Gap analysis transaction-timeout wiring (e2e)', () => {
   let app: INestApplication;
@@ -80,6 +84,29 @@ describe('Gap analysis transaction-timeout wiring (e2e)', () => {
   it('still opens GET /gap-analysis/latest\'s transaction with the unchanged default (only the run route is excluded)', async () => {
     await request(app.getHttpServer())
       .get('/gap-analysis/latest')
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .expect(200);
+
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(transactionSpy.mock.calls[0][1]).toEqual({ timeout: 15000, maxWait: 10000 });
+  });
+
+  it('opens POST /policy-documents\'s transaction with the longer policy-documents timeout', async () => {
+    await request(app.getHttpServer())
+      .post('/policy-documents')
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .attach('file', Buffer.from('wiring test policy content'), 'wiring.txt')
+      .expect(201);
+
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(transactionSpy.mock.calls[0][1]).toEqual({ timeout: 120000, maxWait: 10000 });
+  });
+
+  it('still opens GET /policy-documents\'s transaction with the unchanged default (only the upload route is excluded)', async () => {
+    await request(app.getHttpServer())
+      .get('/policy-documents')
       .set('Host', `${fixture.slug}.localhost`)
       .set('Authorization', `Bearer ${fixture.ownerToken}`)
       .expect(200);
