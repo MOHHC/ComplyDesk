@@ -44,6 +44,7 @@ describe('ClaudeAiProvider', () => {
         model: 'claude-haiku-4-5-20251001',
         tool_choice: { type: 'tool', name: 'submit_classification' },
       }),
+      expect.anything(),
     );
   });
 
@@ -86,6 +87,7 @@ describe('ClaudeAiProvider', () => {
     expect(result).toEqual({ covered: true, reasoning: 'chunk 0 addresses this directly', citedChunkIndex: 0 });
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'claude-sonnet-5' }),
+      expect.anything(),
     );
   });
 
@@ -133,5 +135,71 @@ describe('ClaudeAiProvider', () => {
       reasoning: 'coverage check unavailable',
       citedChunkIndex: null,
     });
+  });
+
+  it('checkControlCoverage degrades instead of throwing when the API call itself fails', async () => {
+    // A rejected messages.create() — a network error, an API-level
+    // error, or (as here) a timeout — is not the same failure as "the
+    // response came back but had no tool_use block": it never produces a
+    // `response` to inspect at all. This must be caught at the call
+    // itself, not just guarded past a missing tool_use, or an outage
+    // still 500s /gap-analysis/run and discards every other control's
+    // already-computed result in that run.
+    // A plain rejection stands in for any of the SDK's real failure
+    // classes (APIConnectionTimeoutError, a 5xx APIError, a network
+    // ECONNRESET) — this test only needs "the call rejects", not any
+    // particular error shape, and the provider's catch block treats them
+    // identically (error instanceof Error ? error.message : String(error)).
+    mockCreate.mockRejectedValue(new Error('Request timed out.'));
+
+    const provider = new ClaudeAiProvider();
+    const result = await provider.checkControlCoverage({
+      control: { code: 'AC-01', title: 'Access reviews', description: 'Quarterly access reviews' },
+      candidateChunks: [{ index: 0, content: 'we review all access grants every quarter' }],
+    });
+
+    expect(result).toEqual({
+      covered: false,
+      reasoning: 'coverage check unavailable',
+      citedChunkIndex: null,
+    });
+  });
+
+  it('checkControlCoverage passes an explicit timeout and maxRetries bounded well under its 75s transaction budget', async () => {
+    // The Anthropic SDK's own default (10 minute timeout, request
+    // timeouts retried) is unusable inside a bounded Prisma transaction —
+    // see the constants block at the top of claude-ai-provider.service.ts.
+    // This asserts the override is actually wired to the call, not just
+    // documented in a comment.
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'tool_use', name: 'submit_coverage', input: { covered: true, reasoning: 'ok', citedChunkIndex: 0 } }],
+    });
+
+    const provider = new ClaudeAiProvider();
+    await provider.checkControlCoverage({
+      control: { code: 'AC-01', title: 'Access reviews', description: 'Quarterly access reviews' },
+      candidateChunks: [{ index: 0, content: 'we review all access grants every quarter' }],
+    });
+
+    const options = mockCreate.mock.calls[0][1];
+    expect(options.timeout).toBeLessThanOrEqual(20_000);
+    expect(options.maxRetries).toBeLessThanOrEqual(1);
+  });
+
+  it('classifyEvidence passes an explicit timeout and no retries, bounded well under its 15s transaction budget', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'tool_use', name: 'submit_classification', input: { suggestedControlCode: 'AC-01', confidence: 0.9, reasoning: 'ok' } }],
+    });
+
+    const provider = new ClaudeAiProvider();
+    await provider.classifyEvidence({
+      mimeType: 'text/plain',
+      content: 'we reviewed access quarterly',
+      controls,
+    });
+
+    const options = mockCreate.mock.calls[0][1];
+    expect(options.timeout).toBeLessThanOrEqual(8_000);
+    expect(options.maxRetries).toBe(0);
   });
 });
