@@ -9,7 +9,7 @@ import { ClassificationDecision } from './dto/review-classification.dto';
 
 /**
  * Classification is best-effort annotation on top of an evidence upload
- * that has already succeeded — a Claude failure here must never fail
+ * that has already succeeded — an AI provider failure here must never fail
  * the upload itself (see EvidenceService.upload).
  */
 @Injectable()
