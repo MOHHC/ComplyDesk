@@ -28,7 +28,7 @@ export interface CoverageResult {
 
 /**
  * Provider-agnostic boundary for every external-AI call in the app.
- * ClaudeAiProvider is the real implementation (Anthropic for reasoning,
+ * GeminiAiProvider is the real implementation (Gemini for reasoning,
  * a local model for embeddings); FakeAiProvider is the deterministic
  * test double swapped in via the AI_PROVIDER DI token so no test ever
  * makes a real network call or loads real model weights.

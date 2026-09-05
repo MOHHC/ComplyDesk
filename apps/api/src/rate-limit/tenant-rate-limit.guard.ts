@@ -12,7 +12,7 @@ const LIMITS: Record<RateLimitName, number> = {
 const MAX_TRACKED_KEYS = 10_000;
 
 /**
- * Per-tenant fixed-window limit on the two Claude-calling routes.
+ * Per-tenant fixed-window limit on the two AI-calling routes.
  * In-memory/per-process — same documented, accepted limitation as
  * WorkspaceLookupThrottleGuard (doesn't hold across a multi-instance
  * deployment; Redis is the future fix, not built now).

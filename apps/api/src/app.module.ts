@@ -7,6 +7,7 @@ import { TenantMiddleware } from './common/tenant.middleware';
 import { TenantTransactionMiddleware } from './common/tenant-transaction.middleware';
 import { GapAnalysisTransactionMiddleware } from './gap-analysis/gap-analysis-transaction.middleware';
 import { PolicyDocumentsTransactionMiddleware } from './policy-documents/policy-documents-transaction.middleware';
+import { EvidenceTransactionMiddleware } from './evidence/evidence-transaction.middleware';
 import { AuthModule } from './auth/auth.module';
 import { SeedControlsModule } from './controls/seed-controls.module';
 import { ControlsModule } from './controls/controls.module';
@@ -20,6 +21,7 @@ import { GapAnalysisModule } from './gap-analysis/gap-analysis.module';
 
 const GAP_ANALYSIS_RUN_ROUTE = { path: 'gap-analysis/run', method: RequestMethod.POST };
 const POLICY_DOCUMENTS_UPLOAD_ROUTE = { path: 'policy-documents', method: RequestMethod.POST };
+const EVIDENCE_UPLOAD_ROUTE = { path: 'controls/:controlId/evidence', method: RequestMethod.POST };
 
 @Module({
   imports: [
@@ -47,15 +49,15 @@ export class AppModule implements NestModule {
     // one of the TenantTransactionMiddleware variants below then opens
     // the tenant-scoped transaction guards and handlers run inside.
     // Every route gets TenantMiddleware first, then exactly one
-    // transaction middleware — the gap-analysis run route and the
-    // policy-document upload route each get their own longer-timeout
-    // variant (GapAnalysisTransactionMiddleware,
-    // PolicyDocumentsTransactionMiddleware — see those files for why),
-    // every other route is unchanged.
+    // transaction middleware — the gap-analysis run route, the
+    // policy-document upload route, and the evidence upload route each
+    // get their own longer-timeout variant (GapAnalysisTransactionMiddleware,
+    // PolicyDocumentsTransactionMiddleware, EvidenceTransactionMiddleware
+    // — see those files for why), every other route is unchanged.
     consumer.apply(TenantMiddleware).forRoutes('*');
     consumer
       .apply(TenantTransactionMiddleware)
-      .exclude(GAP_ANALYSIS_RUN_ROUTE, POLICY_DOCUMENTS_UPLOAD_ROUTE)
+      .exclude(GAP_ANALYSIS_RUN_ROUTE, POLICY_DOCUMENTS_UPLOAD_ROUTE, EVIDENCE_UPLOAD_ROUTE)
       .forRoutes('*');
     consumer
       .apply(GapAnalysisTransactionMiddleware)
@@ -63,5 +65,8 @@ export class AppModule implements NestModule {
     consumer
       .apply(PolicyDocumentsTransactionMiddleware)
       .forRoutes(POLICY_DOCUMENTS_UPLOAD_ROUTE);
+    consumer
+      .apply(EvidenceTransactionMiddleware)
+      .forRoutes(EVIDENCE_UPLOAD_ROUTE);
   }
 }
