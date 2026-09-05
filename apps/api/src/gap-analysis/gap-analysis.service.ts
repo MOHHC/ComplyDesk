@@ -57,7 +57,12 @@ export class GapAnalysisService {
     const userId = this.cls.get('userId')!;
 
     const controls = await tx.control.findMany({ orderBy: [{ category: 'asc' }, { code: 'asc' }] });
-    const chunkCount = await tx.policyChunk.count();
+    // Only chunks belonging to a fully-processed document: a document
+    // whose upload failed partway through (e.g. embed() threw after
+    // some chunks were already inserted) leaves READY-looking rows
+    // behind even though its status is FAILED/PROCESSING — those must
+    // not silently contribute partial content to coverage checks.
+    const chunkCount = await tx.policyChunk.count({ where: { document: { status: 'READY' } } });
 
     const gapRun = await tx.gapAnalysisRun.create({ data: { tenantId, runById: userId } });
 
@@ -84,9 +89,11 @@ export class GapAnalysisService {
 
       const embedding = await this.ai.embed(control.description);
       const candidates = await tx.$queryRaw<Array<{ id: string; chunkIndex: number; content: string }>>`
-        SELECT "id", "chunkIndex", "content"
+        SELECT "PolicyChunk"."id", "PolicyChunk"."chunkIndex", "PolicyChunk"."content"
         FROM "PolicyChunk"
-        ORDER BY "embedding" <=> ${JSON.stringify(embedding)}::vector
+        JOIN "PolicyDocument" ON "PolicyDocument"."id" = "PolicyChunk"."documentId"
+        WHERE "PolicyDocument"."status" = 'READY'
+        ORDER BY "PolicyChunk"."embedding" <=> ${JSON.stringify(embedding)}::vector
         LIMIT ${TOP_K_CHUNKS}
       `;
 
