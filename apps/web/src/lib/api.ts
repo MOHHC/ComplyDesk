@@ -1,11 +1,14 @@
 import type {
   AuthResponse,
+  ClassificationDecision,
   Control,
   ControlStatus,
   Evidence,
+  GapAnalysisReport,
   LoginInput,
   MeResponse,
   Member,
+  PolicyDocument,
   ReadinessSummary,
   SignupInput,
   SignupResponse,
@@ -157,4 +160,35 @@ export function getReadiness(token: string): Promise<ReadinessSummary> {
 
 export function listMembers(token: string): Promise<Member[]> {
   return request<Member[]>('/members', { token });
+}
+
+export function reviewClassification(
+  token: string,
+  controlId: string,
+  evidenceId: string,
+  decision: ClassificationDecision,
+): Promise<Evidence['classification']> {
+  return request(`/controls/${controlId}/evidence/${evidenceId}/classification`, {
+    method: 'PATCH',
+    body: { decision },
+    token,
+  });
+}
+
+export function uploadPolicyDocument(token: string, file: File): Promise<PolicyDocument> {
+  const form = new FormData();
+  form.set('file', file);
+  return requestMultipart<PolicyDocument>('/policy-documents', form, token);
+}
+
+export function listPolicyDocuments(token: string): Promise<PolicyDocument[]> {
+  return request<PolicyDocument[]>('/policy-documents', { token });
+}
+
+export function runGapAnalysis(token: string): Promise<GapAnalysisReport> {
+  return request<GapAnalysisReport>('/gap-analysis/run', { method: 'POST', token });
+}
+
+export function getLatestGapAnalysis(token: string): Promise<GapAnalysisReport | null> {
+  return request<GapAnalysisReport | null>('/gap-analysis/latest', { token });
 }
