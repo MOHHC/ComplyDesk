@@ -58,13 +58,11 @@ body {
   border-radius: 2px;
 }
 
-/* The mobile nav strip stays scrollable on very narrow screens without
-   showing a chunky platform scrollbar under four items. */
+/* The mobile nav strip (6 items) no longer fits un-scrolled on narrow
+   viewports — keep a thin, always-visible scrollbar as a cue that more
+   items are off-screen, instead of hiding it entirely. */
 .nav-scroll {
-  scrollbar-width: none;
-}
-.nav-scroll::-webkit-scrollbar {
-  display: none;
+  scrollbar-width: thin;
 }
 
 /* Numerals in a register must align in columns. */
