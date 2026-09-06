@@ -37,7 +37,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       {/* Full-width strip on small screens, rail from md up — the nav is
-          never hidden behind a toggle, since it is only four items. */}
+          never hidden behind a toggle. It now holds 6 items, so on
+          narrow screens it scrolls horizontally with a visible
+          scrollbar rather than collapsing into a menu. */}
       <aside className="w-full shrink-0 border-b border-rule md:w-[13.5rem] md:border-b-0 md:border-r">
         <div className="md:sticky md:top-0 md:h-dvh">
           <Sidebar />

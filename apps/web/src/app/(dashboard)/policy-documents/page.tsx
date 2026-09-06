@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { PolicyDocStatus } from '@complydesk/shared';
+import type { PolicyDocStatus, PolicyDocument } from '@complydesk/shared';
 import { useAuth } from '@/lib/useAuth';
 import { listPolicyDocuments, uploadPolicyDocument } from '@/lib/api';
 import { Badge, Button, Notice } from '@/components/ui';
@@ -25,7 +25,7 @@ const STATUS_TONE: Record<PolicyDocStatus, 'verified' | 'expiring' | 'exception'
 
 export default function PolicyDocumentsPage() {
   const { token, me, ready } = useAuth();
-  const [documents, setDocuments] = useState<Awaited<ReturnType<typeof listPolicyDocuments>>>([]);
+  const [documents, setDocuments] = useState<PolicyDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

@@ -188,7 +188,17 @@ export default function ControlDetailPage() {
     }
   }
 
-  if (!ready || !control) return null;
+  if (!ready) return null;
+
+  if (error && !control) {
+    return (
+      <div>
+        <Notice>{error}</Notice>
+      </div>
+    );
+  }
+
+  if (!control) return null;
 
   return (
     <div>

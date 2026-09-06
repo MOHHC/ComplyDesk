@@ -27,7 +27,9 @@ export function Sidebar() {
   return (
     <nav aria-label="Main" className="flex h-full flex-col">
       {/* Log out sits up here on mobile so the nav row below holds only
-          navigation and fits without scrolling. */}
+          navigation. At 6 items the row no longer fits un-scrolled on a
+          phone-width viewport; it scrolls horizontally with a visible
+          scrollbar (see .nav-scroll in globals.css) as a cue. */}
       <div className="flex items-center justify-between px-5 py-4 md:border-b md:border-rule">
         <Wordmark />
         <button

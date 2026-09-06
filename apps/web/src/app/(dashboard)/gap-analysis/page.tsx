@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GapAnalysisReport } from '@complydesk/shared';
 import { useAuth } from '@/lib/useAuth';
 import { getLatestGapAnalysis, runGapAnalysis } from '@/lib/api';
@@ -45,6 +45,11 @@ export default function GapAnalysisPage() {
     }
   }
 
+  const sortedResults = useMemo(
+    () => (report ? [...report.results].sort((a, b) => a.control.code.localeCompare(b.control.code)) : []),
+    [report],
+  );
+
   if (!ready) return null;
 
   const coveredCount = report?.results.filter((r) => r.covered).length ?? 0;
@@ -86,7 +91,7 @@ export default function GapAnalysisPage() {
             uploaded policy.
           </p>
           <RegisterHeader columns={['Control', 'Status', 'Reasoning & citation']} />
-          {report.results.map((result) => (
+          {sortedResults.map((result) => (
             <div key={result.id} className="flex gap-4 border-b border-rule py-3.5 pr-1 pl-1">
               <div className="flex-[1.4] min-w-0">
                 <span className="block font-mono text-[12px] text-ink-muted">{result.control.code}</span>

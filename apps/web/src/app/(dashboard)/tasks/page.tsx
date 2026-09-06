@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Task, TaskStatus } from '@complydesk/shared';
 import { useAuth } from '@/lib/useAuth';
 import { listTasks, updateTaskStatus } from '@/lib/api';
-import { Badge } from '@/components/ui';
+import { Badge, Notice } from '@/components/ui';
 import { RegisterEmpty, RegisterHeader, RegisterSkeletonRows } from '@/components/register';
 
 const STATUS_OPTIONS: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'DONE'];
@@ -28,6 +28,9 @@ export default function TasksPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Used to re-fetch after a mutation (e.g. a status change) completes —
+  // a plain, un-guarded fetch is fine there since it's a one-off request
+  // triggered by a user action, not a value this effect re-runs on.
   const refresh = useCallback(() => {
     if (!token) return;
     setLoading(true);
@@ -38,8 +41,15 @@ export default function TasksPage() {
   }, [token, filter]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (!token) return;
+    let ignore = false;
+    setLoading(true);
+    listTasks(token, { status: filter || undefined })
+      .then((data) => { if (!ignore) setTasks(data); })
+      .catch((err) => { if (!ignore) setError(err instanceof Error ? err.message : 'Failed to load tasks'); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, [token, filter]);
 
   async function handleStatusChange(taskId: string, status: TaskStatus) {
     if (!token) return;
@@ -76,7 +86,7 @@ export default function TasksPage() {
         ))}
       </select>
 
-      {error && <p role="alert" className="mb-4 text-[13px] text-exception">{error}</p>}
+      {error && <Notice>{error}</Notice>}
 
       <RegisterHeader columns={['Title', 'Due', 'Status']} />
       {loading ? (
@@ -89,7 +99,8 @@ export default function TasksPage() {
           // enforces this on PATCH /tasks/:id/status regardless; this
           // just avoids rendering a control that would 403.
           const canChangeStatus =
-            me?.role === 'OWNER' || me?.role === 'ADMIN' || task.assigneeId === me?.userId;
+            me?.role !== 'AUDITOR' &&
+            (me?.role === 'OWNER' || me?.role === 'ADMIN' || task.assigneeId === me?.userId);
           return (
             <div key={task.id} className="flex items-center gap-4 border-b border-rule py-3.5 pr-1 pl-1">
               <span className="flex-[1.4] truncate text-[14px] font-medium text-ink">{task.title}</span>

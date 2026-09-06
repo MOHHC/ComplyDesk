@@ -5,7 +5,7 @@ import Link from 'next/link';
 import type { Control, ControlStatus } from '@complydesk/shared';
 import { useAuth } from '@/lib/useAuth';
 import { listControls } from '@/lib/api';
-import { Badge } from '@/components/ui';
+import { Badge, Notice } from '@/components/ui';
 import { RegisterEmpty, RegisterHeader, RegisterSkeletonRows } from '@/components/register';
 
 const STATUS_LABEL: Record<ControlStatus, string> = {
@@ -54,14 +54,16 @@ export default function ControlsPage() {
 
   useEffect(() => {
     if (!token) return;
+    let ignore = false;
     setLoading(true);
     listControls(token, {
       category: category || undefined,
       status: status || undefined,
     })
-      .then(setControls)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load controls'))
-      .finally(() => setLoading(false));
+      .then((data) => { if (!ignore) setControls(data); })
+      .catch((err) => { if (!ignore) setError(err instanceof Error ? err.message : 'Failed to load controls'); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
   }, [token, category, status]);
 
   const categories = useMemo(
@@ -107,7 +109,7 @@ export default function ControlsPage() {
         </select>
       </div>
 
-      {error && <p role="alert" className="mb-4 text-[13px] text-exception">{error}</p>}
+      {error && <Notice>{error}</Notice>}
 
       <RegisterHeader columns={['Control', 'Category', 'Status']} />
       {loading ? (
