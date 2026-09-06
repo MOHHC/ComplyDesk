@@ -1,4 +1,5 @@
 import type { Role } from "./roles";
+import type { EvidenceClassification } from "./ai";
 
 export type ControlStatus = "no_evidence" | "has_evidence" | "evidence_expired";
 
@@ -25,6 +26,7 @@ export interface Evidence {
   status: "PENDING" | "APPROVED" | "REJECTED";
   collectedAt: string;
   downloadUrl: string;
+  classification: EvidenceClassification | null;
 }
 
 export type TaskStatus = "TODO" | "IN_PROGRESS" | "DONE";
