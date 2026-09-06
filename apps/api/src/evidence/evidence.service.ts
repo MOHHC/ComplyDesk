@@ -101,6 +101,7 @@ export class EvidenceService {
     const rows = await tx.evidence.findMany({
       where: { controlId },
       orderBy: { collectedAt: 'desc' },
+      include: { classification: { include: { suggestedControl: true } } },
     });
 
     return Promise.all(

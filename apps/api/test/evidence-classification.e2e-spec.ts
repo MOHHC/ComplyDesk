@@ -183,6 +183,31 @@ describe('Evidence classification (e2e)', () => {
     }
   }, 60000);
 
+  it('GET /controls/:id/evidence includes classification data, not just the upload response', async () => {
+    const uploadRes = await request(app.getHttpServer())
+      .post(`/controls/${controlId}/evidence`)
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .attach('file', Buffer.from('quarterly access review completed'), 'evidence.txt')
+      .expect(201);
+    expect(uploadRes.body.classification).toBeTruthy();
+
+    // The point of this test: a *separate* GET, simulating a page
+    // refresh, must carry the same classification data — not just the
+    // one-shot upload response.
+    const listRes = await request(app.getHttpServer())
+      .get(`/controls/${controlId}/evidence`)
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .expect(200);
+
+    const row = listRes.body.find((e: { id: string }) => e.id === uploadRes.body.id);
+    expect(row.classification).toBeTruthy();
+    expect(row.classification.confidence).toBe(uploadRes.body.classification.confidence);
+    expect(row.classification.reasoning).toBe(uploadRes.body.classification.reasoning);
+    expect(row.classification.reviewStatus).toBe('PENDING');
+  });
+
   it('404s reviewing evidence with no classification', async () => {
     // Directly created evidence with no classification row would need a
     // raw insert; simpler and equally valid: hit a random evidence id.
