@@ -11,6 +11,8 @@ const NAV_ITEMS = [
   // scoped to one control), not a standalone list — no separate nav entry.
   { href: '/controls', label: 'Controls' },
   { href: '/tasks', label: 'Tasks' },
+  { href: '/policy-documents', label: 'Policy documents' },
+  { href: '/gap-analysis', label: 'Gap analysis' },
 ];
 
 export function Sidebar() {
