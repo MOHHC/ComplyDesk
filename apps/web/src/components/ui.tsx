@@ -112,6 +112,33 @@ export function Notice({
   );
 }
 
+/** A compact status mark for a table/register cell — the mono, boxed
+ * counterpart to Notice's prose-toned alerts. Tone follows the same
+ * verified/expiring/exception triad as everywhere else; 'neutral' is
+ * for states that carry no compliance meaning (e.g. a task's TODO
+ * status), never used for anything status.css governs. */
+export function Badge({
+  tone,
+  children,
+}: {
+  tone: 'verified' | 'expiring' | 'exception' | 'neutral';
+  children: React.ReactNode;
+}) {
+  const styles: Record<typeof tone, string> = {
+    verified: 'border-verified/35 bg-verified/10 text-verified',
+    expiring: 'border-expiring/35 bg-expiring/10 text-expiring',
+    exception: 'border-exception/35 bg-exception/10 text-exception',
+    neutral: 'border-rule bg-paper-raised text-ink-muted',
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded-sm border px-2 py-0.5 font-mono text-[11px] font-medium whitespace-nowrap ${styles[tone]}`}
+    >
+      {children}
+    </span>
+  );
+}
+
 export function TextLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <Link
