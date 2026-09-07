@@ -112,7 +112,15 @@ const MIN_CALL_INTERVAL_MS = Math.ceil(60_000 / GEMINI_FREE_TIER_RPM);
 //    below — untouched by this split.
 const CLASSIFICATION_TIMEOUT_MS = 20_000;
 const IMAGE_CLASSIFICATION_TIMEOUT_MS = 90_000;
-const CLASSIFICATION_RETRY_ATTEMPTS = 1; // 1 = the original call only, no retry
+// 2 = original call + one retry. Was 1 (no retry) to conserve the tight
+// free-tier daily quota, but a real cold-boot verification of the
+// IMAGE_CLASSIFICATION_TIMEOUT_MS fix above hit a distinct failure mode:
+// Gemini's own server returned 504 DEADLINE_EXCEEDED (its own internal
+// deadline, not our client-side timeout) on one call. With zero retries
+// that single transient 504 surfaces directly as classification: null.
+// One retry costs at most one extra call against the daily budget, and
+// only on failure.
+const CLASSIFICATION_RETRY_ATTEMPTS = 2;
 const MAX_CLASSIFICATION_PACER_WAIT_MS = 3_000;
 const COVERAGE_TIMEOUT_MS = 20_000;
 const COVERAGE_RETRY_ATTEMPTS = 2; // 2 = original call + one retry

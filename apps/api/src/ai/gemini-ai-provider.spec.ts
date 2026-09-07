@@ -264,7 +264,7 @@ describe('GeminiAiProvider', () => {
     expect(httpOptions.retryOptions.attempts).toBeLessThanOrEqual(2);
   });
 
-  it('classifyEvidence passes an explicit timeout and no retries, bounded well under its transaction budget', async () => {
+  it('classifyEvidence passes an explicit timeout and one retry, bounded well under its transaction budget', async () => {
     mockGenerateContent.mockResolvedValue({
       text: JSON.stringify({ suggestedControlCode: 'AC-01', confidence: 0.9, reasoning: 'ok' }),
     });
@@ -278,12 +278,17 @@ describe('GeminiAiProvider', () => {
 
     const { httpOptions } = mockGenerateContent.mock.calls[0][0].config;
     // 25s, not the literal CLASSIFICATION_TIMEOUT_MS value: this asserts
-    // the call stays under EvidenceTransactionMiddleware's 30s budget
-    // with real margin, not the exact constant, so a deliberate future
-    // retune doesn't require touching this test unless it actually
-    // threatens that budget.
+    // the call stays comfortably under EvidenceTransactionMiddleware's
+    // transaction budget with real margin, not the exact constant, so a
+    // deliberate future retune doesn't require touching this test unless
+    // it actually threatens that budget.
     expect(httpOptions.timeout).toBeLessThanOrEqual(25_000);
-    expect(httpOptions.retryOptions.attempts).toBe(1);
+    // One retry (attempts=2), not zero: a real cold-boot verification of
+    // the image-classification timeout fix hit a distinct failure mode —
+    // Gemini's own server returning 504 DEADLINE_EXCEEDED — which zero
+    // retries had no way to absorb. See CLASSIFICATION_RETRY_ATTEMPTS's
+    // comment in gemini-ai-provider.service.ts for the full rationale.
+    expect(httpOptions.retryOptions.attempts).toBe(2);
   });
 
   describe('rate pacing (free-tier RPM protection)', () => {
