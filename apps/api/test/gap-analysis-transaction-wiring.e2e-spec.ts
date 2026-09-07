@@ -28,6 +28,7 @@ describe('Gap analysis transaction-timeout wiring (e2e)', () => {
   let app: INestApplication;
   let fixture: TenantFixture;
   let transactionSpy: jest.SpyInstance;
+  let controlId: string;
   const suffix = randomUUID().slice(0, 8);
 
   beforeAll(async () => {
@@ -43,6 +44,13 @@ describe('Gap analysis transaction-timeout wiring (e2e)', () => {
     transactionSpy = jest.spyOn(prisma, '$transaction');
 
     fixture = await createTenant(app.getHttpServer(), suffix);
+
+    const controls = await request(app.getHttpServer())
+      .get('/controls')
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .expect(200);
+    controlId = controls.body[0].id;
   }, 30000);
 
   afterAll(async () => {
@@ -78,7 +86,7 @@ describe('Gap analysis transaction-timeout wiring (e2e)', () => {
       .expect(201);
 
     expect(transactionSpy).toHaveBeenCalledTimes(1);
-    expect(transactionSpy.mock.calls[0][1]).toEqual({ timeout: 75000, maxWait: 10000 });
+    expect(transactionSpy.mock.calls[0][1]).toEqual({ timeout: 300000, maxWait: 10000 });
   });
 
   it('still opens GET /gap-analysis/latest\'s transaction with the unchanged default (only the run route is excluded)', async () => {
@@ -107,6 +115,36 @@ describe('Gap analysis transaction-timeout wiring (e2e)', () => {
   it('still opens GET /policy-documents\'s transaction with the unchanged default (only the upload route is excluded)', async () => {
     await request(app.getHttpServer())
       .get('/policy-documents')
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .expect(200);
+
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(transactionSpy.mock.calls[0][1]).toEqual({ timeout: 15000, maxWait: 10000 });
+  });
+
+  // Added investigating a real bug: a real image evidence upload came
+  // back with classification: null because GeminiAiProvider's image
+  // classification timeout (never separately measured from text) was
+  // silently too short. The fix needed EvidenceTransactionMiddleware's
+  // own timeout raised to match — this pair of cases is this file's
+  // existing wiring-assertion pattern, applied to the one route it
+  // didn't cover yet.
+  it("opens POST .../evidence's transaction with the longer evidence-upload timeout", async () => {
+    await request(app.getHttpServer())
+      .post(`/controls/${controlId}/evidence`)
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .attach('file', Buffer.from('wiring test evidence content'), 'wiring.txt')
+      .expect(201);
+
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(transactionSpy.mock.calls[0][1]).toEqual({ timeout: 110000, maxWait: 10000 });
+  });
+
+  it("still opens GET .../evidence's transaction with the unchanged default (only the upload route is excluded)", async () => {
+    await request(app.getHttpServer())
+      .get(`/controls/${controlId}/evidence`)
       .set('Host', `${fixture.slug}.localhost`)
       .set('Authorization', `Bearer ${fixture.ownerToken}`)
       .expect(200);

@@ -68,26 +68,50 @@ const MIN_CALL_INTERVAL_MS = Math.ceil(60_000 / GEMINI_FREE_TIER_RPM);
 //    transaction (EvidenceTransactionMiddleware — see that file for why
 //    it needed its own, longer-than-default timeout once this was
 //    actually measured against a real call instead of FakeAiProvider's
-//    instant response). 20s reflects real round trips observed against
-//    the live Gemini API from this dev environment — not a theoretical
-//    figure, and not a single measurement either: gemini-3.6-flash's
-//    real latency for this prompt varied from ~9s to a genuine timeout
-//    past 12s across successive live calls, wide enough variance that
-//    two earlier, smaller guesses (6s sized by parity with the old
-//    Claude implementation's numbers, then 12s after the first
-//    measurement) each undershot the next real call and aborted it
-//    mid-flight. It does not block on the pacer (see
+//    instant response). It does not block on the pacer (see
 //    MAX_CLASSIFICATION_PACER_WAIT_MS below) — if the shared pacer is
 //    more than a few seconds out, it skips the call outright rather than
 //    let the wait eat further into the transaction budget. No retry:
 //    same reasoning as before (EvidenceService.upload already treats any
 //    failure here as best-effort), plus a retry would itself need to
 //    wait for another pacer slot.
+//
+//    Text and image classification get DIFFERENT timeouts, not one
+//    shared value, because their real measured latency is genuinely
+//    different in kind, not just variance around the same number:
+//      - text: 20s reflects real round trips observed against the live
+//        Gemini API from this dev environment. gemini-3.6-flash's real
+//        latency for a short text prompt varied from ~9s to a genuine
+//        timeout past 12s across successive live calls, wide enough
+//        variance that two earlier, smaller guesses (6s sized by parity
+//        with the old Claude implementation's numbers, then 12s after
+//        the first measurement) each undershot the next real call and
+//        aborted it mid-flight.
+//      - image: a real image-evidence upload through the actual web UI
+//        came back with classification: null — traced end-to-end
+//        (temporary logging at every boundary: rate limit consumed,
+//        Gemini call reached with the correct inlineData payload, call
+//        aborted by OUR OWN 20s client timeout, not a real API error)
+//        to this same 20s value being applied to image calls too,
+//        which had never been measured on their own — vision input is
+//        real, additional work for the model, not noise around the
+//        text number. Removing the timeout entirely and re-uploading
+//        the same real image measured a genuine ~48s round trip
+//        (generateContent called at :20, resolved at :08 the next
+//        minute) before the model returned a correct, well-formed
+//        classification. 90s keeps real margin above that single
+//        measurement — the same ~1.5-2x margin the text budget carries
+//        over ITS slowest observed call — rather than sitting at the
+//        edge of the one data point gathered so far.
 //  - checkControlCoverage: runs up to 18 times per gap-analysis run,
 //    always through the pacer (see GapAnalysisTransactionMiddleware,
 //    whose timeout was raised to fit ~18 paced, rate-limited calls — see
-//    that file's comment for the full budget derivation).
+//    that file's comment for the full budget derivation). Coverage
+//    checks are text-only (candidate policy chunks, never images), so
+//    they keep using CLASSIFICATION_TIMEOUT_MS's sibling, COVERAGE_TIMEOUT_MS,
+//    below — untouched by this split.
 const CLASSIFICATION_TIMEOUT_MS = 20_000;
+const IMAGE_CLASSIFICATION_TIMEOUT_MS = 90_000;
 const CLASSIFICATION_RETRY_ATTEMPTS = 1; // 1 = the original call only, no retry
 const MAX_CLASSIFICATION_PACER_WAIT_MS = 3_000;
 const COVERAGE_TIMEOUT_MS = 20_000;
@@ -170,7 +194,8 @@ export class GeminiAiProvider implements AiProvider {
       input.controls,
     )}\n\nWhich control does this evidence most likely satisfy? If none clearly apply, say so.`;
 
-    const parts = input.mimeType.startsWith('image/')
+    const isImage = input.mimeType.startsWith('image/');
+    const parts = isImage
       ? [
           { text: prompt },
           {
@@ -190,7 +215,7 @@ export class GeminiAiProvider implements AiProvider {
         responseSchema: CLASSIFICATION_RESPONSE_SCHEMA,
         maxOutputTokens: CLASSIFICATION_MAX_OUTPUT_TOKENS,
         httpOptions: {
-          timeout: CLASSIFICATION_TIMEOUT_MS,
+          timeout: isImage ? IMAGE_CLASSIFICATION_TIMEOUT_MS : CLASSIFICATION_TIMEOUT_MS,
           retryOptions: { attempts: CLASSIFICATION_RETRY_ATTEMPTS },
         },
       },
