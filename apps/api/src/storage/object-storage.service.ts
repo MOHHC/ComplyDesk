@@ -5,6 +5,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import type { Readable } from 'node:stream';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 
@@ -56,6 +57,19 @@ export class ObjectStorageService {
         ContentType: contentType,
       }),
     );
+  }
+
+  /** Reads an object's bytes back into memory — used by classification
+   * retry, which needs the actual file content (not just a presigned URL
+   * a browser would follow) to hand to the AI provider again. */
+  async download(key: string): Promise<Buffer> {
+    const result = await this.client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    const stream = result.Body as Readable;
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
   }
 
   async getDownloadUrl(key: string): Promise<string> {

@@ -67,6 +67,59 @@ describe('GeminiAiProvider', () => {
     expect(parts.some((p: { inlineData?: unknown }) => 'inlineData' in p)).toBe(true);
   });
 
+  it('classifyEvidence gives image classification a meaningfully larger timeout than text', async () => {
+    // Live-observed, not hypothetical: a real image evidence upload
+    // through the actual web UI came back with classification: null.
+    // Traced end-to-end, the Gemini call was reached with the correct
+    // inlineData payload but got aborted by our own client-side
+    // timeout — the SAME constant text classification used, never
+    // separately measured for image (vision) input. A real repro with
+    // that timeout removed measured a genuine ~48s round trip before
+    // the model returned a correct classification — vision input is a
+    // real, additional processing cost, not variance around the text
+    // number. This test is deliberately NOT a real-API timing test
+    // (see gemini-ai-provider.image-classification.real-api.spec.ts's
+    // own comment for why a single live call can't reliably prove a
+    // timeout was too short — real Gemini latency is itself too
+    // variable to reproduce on demand): it asserts the two code paths
+    // are actually CONFIGURED differently, which is what regressed
+    // originally and what a mock can catch deterministically every run.
+    mockGenerateContent.mockResolvedValue({
+      text: JSON.stringify({ suggestedControlCode: 'AC-01', confidence: 0.9, reasoning: 'ok' }),
+    });
+
+    // classifyEvidence doesn't block on the shared pacer — it skips
+    // outright when congested (see the pacer describe block below) — so
+    // a second call issued immediately after the first would throw
+    // "congested" rather than reach generateContent at all. Use fake
+    // timers to advance past the pacer's own interval between the two
+    // calls, same pattern the pacing tests below already use.
+    jest.useFakeTimers();
+    try {
+      const provider = new GeminiAiProvider();
+
+      const first = provider.classifyEvidence({ mimeType: 'text/plain', content: 'we reviewed access quarterly', controls });
+      await jest.advanceTimersByTimeAsync(0);
+      await first;
+      const textTimeout = mockGenerateContent.mock.calls[0][0].config.httpOptions.timeout;
+
+      mockGenerateContent.mockClear();
+      await jest.advanceTimersByTimeAsync(15_000); // clear the pacer's MIN_CALL_INTERVAL_MS
+      const second = provider.classifyEvidence({ mimeType: 'image/png', content: Buffer.from('fake-image-bytes'), controls });
+      await jest.advanceTimersByTimeAsync(0);
+      await second;
+      const imageTimeout = mockGenerateContent.mock.calls[0][0].config.httpOptions.timeout;
+
+      // Not just "different" — large enough on its own to cover the ~48s
+      // real measurement with real margin, so a future edit that widens
+      // the text budget instead of the image one still fails this test.
+      expect(imageTimeout).toBeGreaterThanOrEqual(60_000);
+      expect(imageTimeout).toBeGreaterThan(textTimeout);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('checkControlCoverage sends a JSON-schema-constrained request and parses the response text', async () => {
     mockGenerateContent.mockResolvedValue({
       text: JSON.stringify({ covered: true, reasoning: 'chunk 0 addresses this directly', citedChunkIndex: 0 }),
@@ -211,7 +264,7 @@ describe('GeminiAiProvider', () => {
     expect(httpOptions.retryOptions.attempts).toBeLessThanOrEqual(2);
   });
 
-  it('classifyEvidence passes an explicit timeout and no retries, bounded well under its transaction budget', async () => {
+  it('classifyEvidence passes an explicit timeout and one retry, bounded well under its transaction budget', async () => {
     mockGenerateContent.mockResolvedValue({
       text: JSON.stringify({ suggestedControlCode: 'AC-01', confidence: 0.9, reasoning: 'ok' }),
     });
@@ -225,12 +278,17 @@ describe('GeminiAiProvider', () => {
 
     const { httpOptions } = mockGenerateContent.mock.calls[0][0].config;
     // 25s, not the literal CLASSIFICATION_TIMEOUT_MS value: this asserts
-    // the call stays under EvidenceTransactionMiddleware's 30s budget
-    // with real margin, not the exact constant, so a deliberate future
-    // retune doesn't require touching this test unless it actually
-    // threatens that budget.
+    // the call stays comfortably under EvidenceTransactionMiddleware's
+    // transaction budget with real margin, not the exact constant, so a
+    // deliberate future retune doesn't require touching this test unless
+    // it actually threatens that budget.
     expect(httpOptions.timeout).toBeLessThanOrEqual(25_000);
-    expect(httpOptions.retryOptions.attempts).toBe(1);
+    // One retry (attempts=2), not zero: a real cold-boot verification of
+    // the image-classification timeout fix hit a distinct failure mode —
+    // Gemini's own server returning 504 DEADLINE_EXCEEDED — which zero
+    // retries had no way to absorb. See CLASSIFICATION_RETRY_ATTEMPTS's
+    // comment in gemini-ai-provider.service.ts for the full rationale.
+    expect(httpOptions.retryOptions.attempts).toBe(2);
   });
 
   describe('rate pacing (free-tier RPM protection)', () => {

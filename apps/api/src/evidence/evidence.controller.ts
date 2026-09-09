@@ -18,6 +18,7 @@ import { RolesGuard } from '../rbac/roles.guard';
 import { Roles } from '../rbac/roles.decorator';
 import { Audit } from '../audit/audit.decorator';
 import { TenantRateLimitGuard } from '../rate-limit/tenant-rate-limit.guard';
+import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import { EvidenceService } from './evidence.service';
 import { EvidenceClassificationService } from './evidence-classification.service';
 import { UploadEvidenceDto } from './dto/upload-evidence.dto';
@@ -68,5 +69,20 @@ export class EvidenceController {
     @Body() dto: ReviewClassificationDto,
   ) {
     return this.classification.review(controlId, evidenceId, dto.decision);
+  }
+
+  // Same roles as upload — retrying is re-attempting the same AI step
+  // upload already tries best-effort, so whoever could have uploaded
+  // (and so triggered classification in the first place) can retry it.
+  // Rate-limited the same as any other AI-calling route, but as a
+  // throwing guard here rather than upload's non-throwing tryConsume:
+  // this is one explicit user action, not a step that must degrade
+  // gracefully underneath something else that already succeeded.
+  @Post(':evidenceId/classification/retry')
+  @Roles(Role.OWNER, Role.ADMIN, Role.CONTRIBUTOR)
+  @RateLimit('classification')
+  @Audit({ action: 'evidence.retryClassification', model: 'evidenceClassification', idParam: 'evidenceId' })
+  retryClassification(@Param('controlId') controlId: string, @Param('evidenceId') evidenceId: string) {
+    return this.classification.retry(controlId, evidenceId);
   }
 }

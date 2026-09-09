@@ -2,13 +2,14 @@ import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
+import { Role } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/configure-app';
 import { AI_PROVIDER } from '../src/ai/ai-provider.token';
 import { FakeAiProvider } from '../src/ai/fake-ai-provider.service';
 import { TenantRateLimitGuard } from '../src/rate-limit/tenant-rate-limit.guard';
 import { RateLimitModule } from '../src/rate-limit/rate-limit.module';
-import { createTenant, cleanupTenant, TenantFixture } from './helpers/fixtures';
+import { addMember, createTenant, cleanupTenant, TenantFixture } from './helpers/fixtures';
 
 describe('Evidence classification (e2e)', () => {
   let app: INestApplication;
@@ -52,7 +53,84 @@ describe('Evidence classification (e2e)', () => {
       .expect(201);
 
     expect(res.body.classification).toBeTruthy();
+    expect(res.body.classification.status).toBe('COMPLETED');
     expect(res.body.classification.reviewStatus).toBe('PENDING');
+  });
+
+  it('a reasoned no-match result is a COMPLETED classification, not a failure', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/controls/${controlId}/evidence`)
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .attach('file', Buffer.from('NO_MATCH nothing here fits a control'), 'no-match.txt')
+      .expect(201);
+
+    expect(res.body.classification.status).toBe('COMPLETED');
+    expect(res.body.classification.suggestedControlId).toBeNull();
+    expect(res.body.classification.reasoning.length).toBeGreaterThan(0);
+  });
+
+  it('a provider failure is a FAILED classification, retryable, distinct from no-match', async () => {
+    const upload = await request(app.getHttpServer())
+      .post(`/controls/${controlId}/evidence`)
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .attach('file', Buffer.from('FAIL_CLASSIFICATION this call should blow up'), 'fails.txt')
+      .expect(201);
+
+    expect(upload.body.classification).toBeTruthy();
+    expect(upload.body.classification.status).toBe('FAILED');
+    expect(upload.body.classification.suggestedControlId).toBeNull();
+    expect(upload.body.classification.reasoning).toContain('Classification failed');
+
+    // Retry re-classifies the same stored file (there's no separate
+    // "new content" input) — with the same FAIL_CLASSIFICATION-marked
+    // bytes, FakeAiProvider deterministically fails again. That still
+    // proves the endpoint works end-to-end: it reads the file back from
+    // storage, re-runs the AI call, and persists a fresh outcome — just
+    // not a different one, since nothing about the input changed.
+    const retried = await request(app.getHttpServer())
+      .post(`/controls/${controlId}/evidence/${upload.body.id}/classification/retry`)
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .expect(201);
+
+    expect(retried.body.status).toBe('FAILED');
+    expect(retried.body.reviewStatus).toBe('PENDING');
+
+    const listRes = await request(app.getHttpServer())
+      .get(`/controls/${controlId}/evidence`)
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .expect(200);
+    const row = listRes.body.find((e: { id: string }) => e.id === upload.body.id);
+    expect(row.classification.status).toBe('FAILED');
+  });
+
+
+  it('rejects a classification retry from an AUDITOR, a view-only role', async () => {
+    const upload = await request(app.getHttpServer())
+      .post(`/controls/${controlId}/evidence`)
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .attach('file', Buffer.from('FAIL_CLASSIFICATION for auditor retry test'), 'fails2.txt')
+      .expect(201);
+
+    const auditor = await addMember(fixture.tenantId, Role.AUDITOR, `${suffix}-retry-auditor`);
+
+    await request(app.getHttpServer())
+      .post(`/controls/${controlId}/evidence/${upload.body.id}/classification/retry`)
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${auditor.token}`)
+      .expect(403);
+  });
+
+  it('404s retrying classification for evidence that does not exist', async () => {
+    await request(app.getHttpServer())
+      .post(`/controls/${controlId}/evidence/${randomUUID()}/classification/retry`)
+      .set('Host', `${fixture.slug}.localhost`)
+      .set('Authorization', `Bearer ${fixture.ownerToken}`)
+      .expect(404);
   });
 
   it('confirm leaves the evidence where it is and marks the classification confirmed', async () => {
@@ -159,7 +237,10 @@ describe('Evidence classification (e2e)', () => {
       expect(withinBudget.body.classification).toBeTruthy();
 
       // The next upload: past the budget. It must still succeed and
-      // save the file — just with no classification attached.
+      // save the file — with a FAILED-status classification row (not no
+      // row at all) explaining why, per the fix for a real user report:
+      // a rate-limited skip and a genuine "never attempted" must not
+      // look identical in the UI.
       const res = await request(app.getHttpServer())
         .post(`/controls/${rlControlId}/evidence`)
         .set('Host', `${rlFixture.slug}.localhost`)
@@ -168,7 +249,10 @@ describe('Evidence classification (e2e)', () => {
         .expect(201);
 
       expect(res.body.id).toBeTruthy();
-      expect(res.body.classification).toBeNull();
+      expect(res.body.classification).toBeTruthy();
+      expect(res.body.classification.status).toBe('FAILED');
+      expect(res.body.classification.suggestedControlId).toBeNull();
+      expect(res.body.classification.reasoning).toMatch(/hourly/i);
 
       // The file really was saved: it shows up in the control's
       // evidence list, not just in the upload response.

@@ -9,6 +9,7 @@ import {
   getControl,
   listEvidence,
   listMembers,
+  retryClassification,
   reviewClassification,
   uploadEvidence,
 } from '@/lib/api';
@@ -30,11 +31,72 @@ function ReviewStatusBadge({ status }: { status: NonNullable<Evidence['classific
   return <Badge tone="expiring">Needs review</Badge>;
 }
 
-/** The AI classification suggestion attached to one evidence row, with
- * confirm/override/dismiss actions when it's still pending review. This
- * is the piece that didn't exist before this page's rebuild — the API
- * has carried this data on upload since the AI layer shipped, but no UI
- * ever surfaced it. */
+/** A plain "Retry classification" / "Classify now" trigger shared by the
+ * two states that have nothing to review yet — no row at all, and a row
+ * whose attempt failed. Same action either way: re-run classification
+ * for this evidence file. */
+function RetryButton({
+  label,
+  controlId,
+  evidenceId,
+  onDone,
+}: {
+  label: string;
+  controlId: string;
+  evidenceId: string;
+  onDone: () => void;
+}) {
+  const { token } = useAuth();
+  const [retrying, setRetrying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleRetry() {
+    if (!token) return;
+    setRetrying(true);
+    setError(null);
+    try {
+      await retryClassification(token, controlId, evidenceId);
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Retry failed');
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        disabled={retrying}
+        onClick={handleRetry}
+        className="cursor-pointer text-[12px] font-medium text-ink underline decoration-rule underline-offset-2 hover:decoration-ink disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {retrying ? 'Classifying…' : label}
+      </button>
+      {error && <p className="mt-1 text-[12px] text-exception">{error}</p>}
+    </div>
+  );
+}
+
+/** The AI classification attached to one evidence row. Three states,
+ * deliberately rendered so they can't be mistaken for one another —
+ * a real user report was this exact confusion: a genuine Gemini 503
+ * left no classification row, which looked identical to evidence that
+ * was never classified at all, with no indication anything had gone
+ * wrong and no way to retry.
+ *
+ *  - No row at all (legacy evidence from before this workspace tracked
+ *    outcomes, or the rare case an attempt never got a chance to
+ *    persist): "Not yet classified" + a first-time "Classify now".
+ *  - status: 'FAILED' (a provider error, or the tenant's hourly AI
+ *    budget was spent): a clearly-labeled failure with the actual
+ *    reason and a "Retry classification" action.
+ *  - status: 'COMPLETED': the AI's real output, including its own
+ *    reasoned "nothing in this file matches a known control" — that's
+ *    a completed classification, not a failure, so it renders with the
+ *    normal confirm/dismiss actions and no retry button.
+ */
 function ClassificationPanel({
   controlId,
   evidence,
@@ -49,8 +111,40 @@ function ClassificationPanel({
   const { token } = useAuth();
   const [busy, setBusy] = useState<ClassificationDecision | null>(null);
   const classification = evidence.classification;
+
   if (!classification) {
-    return <p className="mt-1.5 text-[12px] text-ink-muted">No AI classification for this file.</p>;
+    return (
+      <div className="mt-1.5">
+        <p className="text-[12px] text-ink-muted">Not yet classified.</p>
+        {canReview && (
+          <RetryButton
+            label="Classify now"
+            controlId={controlId}
+            evidenceId={evidence.id}
+            onDone={onReviewed}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (classification.status === 'FAILED') {
+    return (
+      <div className="mt-2 border-l-2 border-l-exception/60 pl-3">
+        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+          <Badge tone="exception">Classification failed</Badge>
+        </div>
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-muted">{classification.reasoning}</p>
+        {canReview && (
+          <RetryButton
+            label="Retry classification"
+            controlId={controlId}
+            evidenceId={evidence.id}
+            onDone={onReviewed}
+          />
+        )}
+      </div>
+    );
   }
 
   async function handleDecision(decision: ClassificationDecision) {
@@ -73,11 +167,13 @@ function ClassificationPanel({
         <span className="tabular font-mono text-ink-muted">
           {Math.round(classification.confidence * 100)}% confidence
         </span>
-        {classification.suggestedControl && (
+        {classification.suggestedControl ? (
           <span className="text-ink-muted">
             suggests <span className="font-mono text-ink">{classification.suggestedControl.code}</span> —{' '}
             {classification.suggestedControl.title}
           </span>
+        ) : (
+          <span className="text-ink-muted">no confident match</span>
         )}
       </div>
       <p className="mt-1 text-[13px] leading-relaxed text-ink-muted">{classification.reasoning}</p>
