@@ -7,7 +7,28 @@ import { RATE_LIMIT_KEY, RateLimitName } from './rate-limit.decorator';
 const WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const LIMITS: Record<RateLimitName, number> = {
   classification: 30,
-  gapAnalysis: 5,
+  // Was 5 — sized around Gemini, which handled coverage checks before
+  // GroqAiProvider took over (see that file). Gemini's confirmed
+  // free-tier ceiling was ~5 requests/minute and ~20/day; a full
+  // 18-control run cost most of an hour's worth of that budget on its
+  // own, so 5 runs/hour/tenant was already close to the real ceiling,
+  // not just a conservative throttle.
+  //
+  // Groq's free-tier limits for openai/gpt-oss-120b (the model actually
+  // in use — see GroqAiProvider.COVERAGE_MODEL for why this isn't
+  // llama-3.3-70b-versatile after all) are confirmed straight from
+  // Groq's own rate-limits documentation, not a third-party tracker: 30
+  // requests/minute, 1,000/day. A real 18-control gap-analysis run
+  // against this project's own GROQ_API_KEY completed in ~49s with zero
+  // 429s. At 18 requests/run, 1,000/day covers roughly 55 runs/day on
+  // Groq's own ceiling alone. 20/hour/tenant is a 4x increase over the
+  // old Gemini-sized value — a real loosening reflecting the new
+  // provider's headroom — while still leaving room for more than one
+  // tenant to run gap analysis in the same hour without one tenant alone
+  // threatening the shared daily budget (this credential, like Gemini's,
+  // is one project-wide key shared by every tenant, not a per-tenant
+  // one).
+  gapAnalysis: 20,
 };
 const MAX_TRACKED_KEYS = 10_000;
 

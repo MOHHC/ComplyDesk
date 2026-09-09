@@ -25,8 +25,8 @@ describe('TenantRateLimitGuard', () => {
   });
 
   it('allows requests under the configured limit and blocks the one that exceeds it', () => {
-    const guard = buildGuard('gapAnalysis', 'tenant-1'); // limit: 5/hour
-    for (let i = 0; i < 5; i += 1) {
+    const guard = buildGuard('gapAnalysis', 'tenant-1'); // limit: 20/hour
+    for (let i = 0; i < 20; i += 1) {
       expect(guard.canActivate(fakeContext())).toBe(true);
     }
     expect(() => guard.canActivate(fakeContext())).toThrow(/Too many/);
@@ -38,7 +38,7 @@ describe('TenantRateLimitGuard', () => {
     const cls = { get: jest.fn(() => currentTenant) } as unknown as ClsService<any>;
     const guard = new TenantRateLimitGuard(reflector, cls);
 
-    for (let i = 0; i < 5; i += 1) guard.canActivate(fakeContext());
+    for (let i = 0; i < 20; i += 1) guard.canActivate(fakeContext());
     expect(() => guard.canActivate(fakeContext())).toThrow(/Too many/);
 
     currentTenant = 'tenant-b';

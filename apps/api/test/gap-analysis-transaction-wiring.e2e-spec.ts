@@ -86,7 +86,7 @@ describe('Gap analysis transaction-timeout wiring (e2e)', () => {
       .expect(201);
 
     expect(transactionSpy).toHaveBeenCalledTimes(1);
-    expect(transactionSpy.mock.calls[0][1]).toEqual({ timeout: 300000, maxWait: 10000 });
+    expect(transactionSpy.mock.calls[0][1]).toEqual({ timeout: 90000, maxWait: 10000 });
   });
 
   it('still opens GET /gap-analysis/latest\'s transaction with the unchanged default (only the run route is excluded)', async () => {

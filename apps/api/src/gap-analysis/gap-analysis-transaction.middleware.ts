@@ -9,30 +9,28 @@ import { TenantTransactionMiddleware } from '../common/tenant-transaction.middle
  * GapAnalysisService.run() makes up to 18 controls' worth of
  * checkControlCoverage() calls through a 4-worker pool (see
  * runWithConcurrency). embed() is a local/bundled model call and fast;
- * checkControlCoverage() is the real Gemini API round trip and, on the
- * free tier, is paced by GeminiAiProvider's shared rate pacer (a fixed
- * minimum interval between calls — see MIN_CALL_INTERVAL_MS in
- * gemini-ai-provider.service.ts, sized to the free tier's *confirmed*
- * 5 requests/minute ceiling for gemini-3.6-flash, read off a live 429's
- * quota error, not the ~10-15/min figure this was originally guessed
- * at) rather than fired as fast as the worker pool allows. That pacing
- * floor dominates the run's total time: at the pacer's 4 RPM (15s
- * between calls, deliberately under the confirmed 5/min ceiling — see
- * that file for why), 18 calls have ~17 gaps between them regardless of
- * worker concurrency, since the pacer serializes every real call
- * process-wide — ~17 x 15s = ~255s just in pacing waits, before any
- * call's own latency or the surrounding DB work. 300s gives that
- * realistic floor real margin (occasional slow calls, one retry, DB
- * overhead) rather than sitting right at the edge of it.
+ * checkControlCoverage() is now GroqAiProvider's API round trip (moved
+ * off Gemini — see that file's own comment for why), paced by its own
+ * shared rate pacer at 24 RPM (2.5s between calls — see
+ * GROQ_FREE_TIER_RPM in groq-ai-provider.service.ts) rather than fired
+ * as fast as the worker pool allows.
  *
- * This is a real, deliberate tradeoff: a full 18-control run on the free
- * tier now takes on the order of 4-5 minutes wall-clock, holding this
- * transaction's connection open the whole time. That's acceptable for
- * manual/dev testing against a free API key; a production deployment
- * fronting a paid tier (no pacer needed, or a much higher one) or
- * wanting sub-minute runs would want this moved off the request/response
- * cycle entirely (a background job + polling), not just a bigger
- * transaction timeout.
+ * This budget used to be 300s: Gemini's confirmed 4 RPM pacer meant ~17
+ * gaps between 18 calls at 15s each — ~255s just in pacing waits, before
+ * any call's own latency. Groq's pacer is an order of magnitude faster
+ * (2.5s vs 15s between calls), so that floor is theoretically only
+ * ~17 x 2.5s = ~42.5s — and a real 18-control run against a real policy
+ * document (openai/gpt-oss-120b, GROQ_API_KEY, chunkCount > 0 so every
+ * control actually made a live checkControlCoverage call, not the empty-
+ * policy-library fast path) measured the whole request at ~49s
+ * wall-clock end to end, zero 429s. 90s, not 60s: 49s measured against a
+ * ~42.5s theoretical floor already shows the model's own per-call
+ * latency adds real time beyond pure pacing, and 60s (the first guess,
+ * made before this was ever measured) would have left only ~11s of
+ * margin over that single real data point — the same mistake
+ * GeminiAiProvider's classification timeout made at first, sized before
+ * a real measurement existed. 90s keeps closer to a real 2x margin
+ * instead.
  *
  * `maxWait` (time waiting for a pooled connection before the
  * transaction starts) is left at the inherited default — nothing about
@@ -40,5 +38,5 @@ import { TenantTransactionMiddleware } from '../common/tenant-transaction.middle
  */
 @Injectable()
 export class GapAnalysisTransactionMiddleware extends TenantTransactionMiddleware {
-  protected readonly transactionOptions = { timeout: 300000, maxWait: 10000 };
+  protected readonly transactionOptions = { timeout: 90000, maxWait: 10000 };
 }
