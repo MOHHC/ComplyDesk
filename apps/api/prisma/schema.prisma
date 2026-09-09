@@ -181,17 +181,31 @@ enum PolicyDocStatus {
   FAILED
 }
 
+// Whether the classification attempt itself succeeded, independent of
+// ReviewStatus (which is about the human's decision on an AI suggestion
+// that only exists once status is COMPLETED). A row is always written
+// after an attempt — success or failure — so the UI can tell "we tried
+// and got nothing" apart from "we haven't tried". COMPLETED covers both
+// a real suggestion and the AI's own "nothing fits" verdict (null
+// suggestedControlId with real reasoning); only an outright failure to
+// even get an answer (provider error, rate limit) is FAILED.
+enum ClassificationStatus {
+  COMPLETED
+  FAILED
+}
+
 model EvidenceClassification {
-  id                 String       @id @default(uuid())
+  id                 String                @id @default(uuid())
   tenantId           String
-  evidenceId         String       @unique
+  evidenceId         String                @unique
   suggestedControlId String?
   confidence         Float
   reasoning          String
-  reviewStatus       ReviewStatus @default(PENDING)
+  status             ClassificationStatus  @default(COMPLETED)
+  reviewStatus       ReviewStatus          @default(PENDING)
   reviewedById       String?
   reviewedAt         DateTime?
-  createdAt          DateTime     @default(now())
+  createdAt          DateTime              @default(now())
 
   tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   evidence         Evidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)

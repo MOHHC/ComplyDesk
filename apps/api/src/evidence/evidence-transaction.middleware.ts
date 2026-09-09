@@ -4,7 +4,10 @@ import { TenantTransactionMiddleware } from '../common/tenant-transaction.middle
 /**
  * Same tenant-scoped transaction as every other route (see
  * TenantTransactionMiddleware) but with a longer `timeout`, wired in
- * AppModule.configure() for POST /controls/:controlId/evidence only.
+ * AppModule.configure() for POST /controls/:controlId/evidence and POST
+ * .../evidence/:evidenceId/classification/retry — the only two routes
+ * that call EvidenceClassificationService.classify() and so make the
+ * same slow, variable-latency AI call.
  *
  * EvidenceService.upload() makes one classifyEvidence() call inline
  * before the transaction commits (see GeminiAiProvider). Before this

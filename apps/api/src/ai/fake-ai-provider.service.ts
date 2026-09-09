@@ -11,7 +11,12 @@ import {
  * Deterministic test double — no network call, no local model load.
  * Fixture conventions (used by e2e specs to steer specific outcomes):
  *  - classifyEvidence: content containing "CLASSIFY_AS:<code>" suggests
- *    that control code; otherwise it suggests the first control given.
+ *    that control code; content containing "NO_MATCH" gets a reasoned
+ *    "nothing fits" result (suggestedControlCode: null, a real
+ *    reasoning string — a successful classification, not a failure);
+ *    content containing "FAIL_CLASSIFICATION" throws, simulating a
+ *    real AI-provider error; otherwise it suggests the first control
+ *    given.
  *  - embed: a fixed-length pseudo-embedding derived from a simple string
  *    hash, so identical text always embeds identically.
  *  - checkControlCoverage: a control description containing
@@ -28,6 +33,12 @@ export class FakeAiProvider implements AiProvider {
     controls: ControlSummary[];
   }): Promise<ClassificationResult> {
     const text = typeof input.content === 'string' ? input.content : input.content.toString('utf-8');
+    if (text.includes('FAIL_CLASSIFICATION')) {
+      throw new Error('fake provider: simulated classification failure');
+    }
+    if (text.includes('NO_MATCH')) {
+      return { suggestedControlCode: null, confidence: 0.1, reasoning: 'fake provider: nothing in this evidence matches any known control' };
+    }
     const match = text.match(/CLASSIFY_AS:(\S+)/);
     const code = match ? match[1] : (input.controls[0]?.code ?? null);
     return { suggestedControlCode: code, confidence: code ? 0.9 : 0, reasoning: 'fake provider suggestion' };

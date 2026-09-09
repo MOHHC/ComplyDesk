@@ -25,6 +25,28 @@ describe('FakeAiProvider', () => {
     expect(unmarked.suggestedControlCode).toBe('AC-01');
   });
 
+  it('reports a reasoned no-match result for NO_MATCH-marked content', async () => {
+    const provider = new FakeAiProvider();
+    const result = await provider.classifyEvidence({
+      mimeType: 'text/plain',
+      content: 'NO_MATCH this evidence fits nothing',
+      controls,
+    });
+    expect(result.suggestedControlCode).toBeNull();
+    expect(result.reasoning.length).toBeGreaterThan(0);
+  });
+
+  it('throws for FAIL_CLASSIFICATION-marked content, simulating a provider error', async () => {
+    const provider = new FakeAiProvider();
+    await expect(
+      provider.classifyEvidence({
+        mimeType: 'text/plain',
+        content: 'FAIL_CLASSIFICATION this call should blow up',
+        controls,
+      }),
+    ).rejects.toThrow();
+  });
+
   it('produces a deterministic embedding of fixed length for the same text', async () => {
     const provider = new FakeAiProvider();
     const first = await provider.embed('hello world');

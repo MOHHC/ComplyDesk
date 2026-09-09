@@ -1,6 +1,15 @@
 export type ClassificationReviewStatus = "PENDING" | "CONFIRMED" | "OVERRIDDEN" | "DISMISSED";
 export type ClassificationDecision = "confirm" | "override" | "dismiss";
 
+/** Whether the AI actually produced an outcome, independent of
+ * ClassificationReviewStatus (a human decision on a COMPLETED
+ * suggestion). COMPLETED covers both a real suggestion and the AI's own
+ * reasoned "nothing fits" (suggestedControl: null with real reasoning);
+ * FAILED means the attempt itself broke or never ran (a provider error,
+ * or the workspace's classification budget being spent) and is safe to
+ * retry. */
+export type ClassificationStatus = "COMPLETED" | "FAILED";
+
 /**
  * A control as it appears nested inside another resource (a
  * classification's suggestion, a gap-analysis result) via a plain Prisma
@@ -23,6 +32,7 @@ export interface EvidenceClassification {
   suggestedControl: ControlRef | null;
   confidence: number;
   reasoning: string;
+  status: ClassificationStatus;
   reviewStatus: ClassificationReviewStatus;
   reviewedById: string | null;
   reviewedAt: string | null;

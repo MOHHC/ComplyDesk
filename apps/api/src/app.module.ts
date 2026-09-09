@@ -22,6 +22,10 @@ import { GapAnalysisModule } from './gap-analysis/gap-analysis.module';
 const GAP_ANALYSIS_RUN_ROUTE = { path: 'gap-analysis/run', method: RequestMethod.POST };
 const POLICY_DOCUMENTS_UPLOAD_ROUTE = { path: 'policy-documents', method: RequestMethod.POST };
 const EVIDENCE_UPLOAD_ROUTE = { path: 'controls/:controlId/evidence', method: RequestMethod.POST };
+const EVIDENCE_RETRY_CLASSIFICATION_ROUTE = {
+  path: 'controls/:controlId/evidence/:evidenceId/classification/retry',
+  method: RequestMethod.POST,
+};
 
 @Module({
   imports: [
@@ -50,14 +54,18 @@ export class AppModule implements NestModule {
     // the tenant-scoped transaction guards and handlers run inside.
     // Every route gets TenantMiddleware first, then exactly one
     // transaction middleware — the gap-analysis run route, the
-    // policy-document upload route, and the evidence upload route each
-    // get their own longer-timeout variant (GapAnalysisTransactionMiddleware,
-    // PolicyDocumentsTransactionMiddleware, EvidenceTransactionMiddleware
-    // — see those files for why), every other route is unchanged.
+    // policy-document upload route, and the two evidence-classification
+    // routes (upload, retry) each get their own longer-timeout variant
+    // (GapAnalysisTransactionMiddleware, PolicyDocumentsTransactionMiddleware,
+    // EvidenceTransactionMiddleware — see those files for why), every
+    // other route is unchanged. Retry shares EVIDENCE_UPLOAD_ROUTE's
+    // middleware, not its own: it makes the exact same classifyEvidence()
+    // call upload does, just re-triggered by hand, so it needs the same
+    // budget.
     consumer.apply(TenantMiddleware).forRoutes('*');
     consumer
       .apply(TenantTransactionMiddleware)
-      .exclude(GAP_ANALYSIS_RUN_ROUTE, POLICY_DOCUMENTS_UPLOAD_ROUTE, EVIDENCE_UPLOAD_ROUTE)
+      .exclude(GAP_ANALYSIS_RUN_ROUTE, POLICY_DOCUMENTS_UPLOAD_ROUTE, EVIDENCE_UPLOAD_ROUTE, EVIDENCE_RETRY_CLASSIFICATION_ROUTE)
       .forRoutes('*');
     consumer
       .apply(GapAnalysisTransactionMiddleware)
@@ -67,6 +75,6 @@ export class AppModule implements NestModule {
       .forRoutes(POLICY_DOCUMENTS_UPLOAD_ROUTE);
     consumer
       .apply(EvidenceTransactionMiddleware)
-      .forRoutes(EVIDENCE_UPLOAD_ROUTE);
+      .forRoutes(EVIDENCE_UPLOAD_ROUTE, EVIDENCE_RETRY_CLASSIFICATION_ROUTE);
   }
 }

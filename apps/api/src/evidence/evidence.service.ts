@@ -66,20 +66,26 @@ export class EvidenceService {
       // reject the upload: losing a customer's evidence file because an
       // annotation budget ran out is wrong for a product whose core job
       // is evidence collection (spec section B). When the tenant's
-      // hourly classification budget is spent, skip the AI call
-      // entirely and store no classification — same shape as the
-      // existing best-effort failure path below.
+      // hourly classification budget is spent, skip the AI call itself
+      // but still persist a FAILED-status row via recordSkipped(), so
+      // the evidence carries a distinct, retryable "we didn't even try"
+      // state instead of looking identical to "never uploaded evidence
+      // has no classification".
       if (this.rateLimit.tryConsume('classification', tenantId)) {
         classificationRow = await this.classification.classify(evidence.id, controlId, file.buffer, file.mimetype);
       } else {
         this.logger.warn(
           `Skipping evidence classification for evidenceId=${evidence.id} controlId=${controlId} tenantId=${tenantId}: hourly classification rate limit reached`,
         );
+        classificationRow = await this.classification.recordSkipped(evidence.id, controlId);
       }
     } catch (error) {
-      // Best-effort: classification failing must never fail the upload
-      // that already succeeded. No retry — the review endpoint has
-      // nothing to review until a future upload succeeds in classifying.
+      // Last-resort guard only: EvidenceClassificationService.classify()
+      // already catches every AI-provider failure itself and persists a
+      // FAILED row instead of throwing, so this only fires for something
+      // genuinely unexpected (e.g. the persistence write itself failing).
+      // Classification failing must never fail the upload that already
+      // succeeded.
       this.logger.error(
         `Evidence classification failed for evidenceId=${evidence.id} controlId=${controlId} tenantId=${tenantId}: ${
           error instanceof Error ? error.message : String(error)

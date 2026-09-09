@@ -175,6 +175,17 @@ export function reviewClassification(
   });
 }
 
+export function retryClassification(
+  token: string,
+  controlId: string,
+  evidenceId: string,
+): Promise<Evidence['classification']> {
+  return request(`/controls/${controlId}/evidence/${evidenceId}/classification/retry`, {
+    method: 'POST',
+    token,
+  });
+}
+
 export function uploadPolicyDocument(token: string, file: File): Promise<PolicyDocument> {
   const form = new FormData();
   form.set('file', file);
