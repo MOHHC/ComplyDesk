@@ -29,6 +29,14 @@ model Tenant {
   id                      String                   @id @default(uuid())
   name                    String
   slug                    String                   @unique
+  // The one public, pre-seeded tenant (slug "demo") that recruiters/
+  // visitors land on with zero setup. DemoReadOnlyGuard checks this via
+  // cls.isDemoTenant (set once per request by TenantMiddleware, which
+  // already has the row in hand) to block the handful of mutating,
+  // AI-cost, narrative-breaking actions — evidence upload, classification
+  // retry, policy-document upload, gap-analysis run — without touching
+  // anything else. Never true for a real signed-up tenant.
+  isDemo                  Boolean                  @default(false)
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
   memberships             Membership[]
