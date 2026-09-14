@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GapAnalysisReport } from '@complydesk/shared';
 import { useAuth } from '@/lib/useAuth';
 import { getLatestGapAnalysis, runGapAnalysis } from '@/lib/api';
-import { Badge, Button, Notice } from '@/components/ui';
+import { Badge, Button, Notice, Spinner } from '@/components/ui';
 import { RegisterEmpty, RegisterHeader } from '@/components/register';
 
 // @Roles(OWNER, ADMIN) on POST /gap-analysis/run — same boundary as
@@ -55,7 +55,7 @@ export default function GapAnalysisPage() {
   const coveredCount = report?.results.filter((r) => r.covered).length ?? 0;
 
   return (
-    <div>
+    <div className="page-enter">
       <header className="mb-6 flex items-baseline justify-between gap-4 border-b border-rule pb-3">
         <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-ink">Gap analysis</h1>
         {report && (
@@ -74,7 +74,14 @@ export default function GapAnalysisPage() {
             checked individually against the policy library.
           </p>
           <Button type="button" onClick={handleRun} disabled={running} className="w-auto">
-            {running ? 'Running gap analysis…' : 'Run gap analysis'}
+            {running ? (
+              <>
+                <Spinner className="mr-2" />
+                Running gap analysis…
+              </>
+            ) : (
+              'Run gap analysis'
+            )}
           </Button>
         </div>
       )}

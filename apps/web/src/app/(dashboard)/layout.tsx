@@ -35,7 +35,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex min-h-dvh flex-col md:flex-row">
+    <div className="page-enter flex min-h-dvh flex-col md:flex-row">
       {/* Full-width strip on small screens, rail from md up — the nav is
           never hidden behind a toggle. It now holds 6 items, so on
           narrow screens it scrolls horizontally with a visible

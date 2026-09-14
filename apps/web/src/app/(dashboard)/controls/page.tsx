@@ -26,11 +26,18 @@ const STATUS_GUTTER: Record<ControlStatus, string> = {
   evidence_expired: 'border-l-expiring',
 };
 
-function ControlRow({ control }: { control: Control }) {
+// Staggers a register row's entrance. Capped at the 8th row so a long,
+// unfiltered list doesn't take seconds to finish revealing.
+function rowEnterStyle(index: number): React.CSSProperties {
+  return { transitionDelay: `${Math.min(index, 8) * 40}ms` };
+}
+
+function ControlRow({ control, index }: { control: Control; index: number }) {
   return (
     <Link
       href={`/controls/${control.id}`}
-      className={`flex items-center gap-4 border-b border-l-2 border-rule py-3.5 pr-1 pl-4 transition-colors duration-150 hover:bg-paper-raised ${STATUS_GUTTER[control.status]}`}
+      style={rowEnterStyle(index)}
+      className={`register-row-enter flex items-center gap-4 border-b border-l-2 border-rule py-3.5 pr-1 pl-4 hover:bg-paper-raised ${STATUS_GUTTER[control.status]}`}
     >
       <span className="flex-[1.4] min-w-0">
         <span className="block font-mono text-[12px] text-ink-muted">{control.code}</span>
@@ -74,7 +81,7 @@ export default function ControlsPage() {
   if (!ready) return null;
 
   return (
-    <div>
+    <div className="page-enter">
       <header className="mb-6 flex items-baseline justify-between gap-4 border-b border-rule pb-3">
         <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-ink">Controls</h1>
         <span className="font-mono text-[11px] text-ink-muted">
@@ -117,7 +124,7 @@ export default function ControlsPage() {
       ) : controls.length === 0 ? (
         <RegisterEmpty>No controls match this filter.</RegisterEmpty>
       ) : (
-        controls.map((control) => <ControlRow key={control.id} control={control} />)
+        controls.map((control, index) => <ControlRow key={control.id} control={control} index={index} />)
       )}
     </div>
   );

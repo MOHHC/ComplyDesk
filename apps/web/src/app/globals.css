@@ -36,6 +36,62 @@
   --radius-sm: 3px;
   --radius-md: 3px;
   --radius-lg: 4px;
+
+  /* Motion. ease-out for anything entering/exiting — starts fast, feels
+     responsive (never ease-in on UI: it delays the exact moment being
+     watched). duration-fast matches the hover/focus convention already
+     used everywhere (`transition-colors duration-150`); duration-base is
+     for a full content reveal, one tier up. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+}
+
+/* Applied to the outermost element a route/page returns. Every page under
+   (dashboard)/ returns a fresh <div> both on first paint (once data is
+   ready) and on every client-side navigation (Next.js mounts a new
+   component tree per route) — @starting-style fires on that fresh mount
+   with no JS needed. Also reused per-row on register lists (see
+   RegisterHeader/RegisterEmpty's siblings) with a staggered
+   transition-delay for a group entrance. */
+.page-enter {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-out);
+}
+
+@starting-style {
+  .page-enter {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* Register-row entrance: the same opacity/transform treatment as
+   .page-enter, combined into ONE transition declaration together with
+   the row's own hover color transition (background-color/border-color)
+   — rather than layering .page-enter next to Tailwind's transition-colors
+   utility on the same element. Two separate transition declarations on
+   one element don't merge: the shorthand from whichever rule wins the
+   cascade silently drops the other's properties. Pair with an inline
+   `style={{ transitionDelay: ... }}` per row for the stagger. */
+.register-row-enter {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-out),
+    background-color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+}
+
+@starting-style {
+  .register-row-enter {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 html {
