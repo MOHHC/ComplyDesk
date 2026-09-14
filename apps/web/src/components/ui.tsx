@@ -91,6 +91,25 @@ export function Button({
   );
 }
 
+/** A continuously-spinning "still working" indicator for actions known to
+ * take real time (gap analysis, evidence upload+classification, policy
+ * processing) — a static disabled button with no motion reads as frozen,
+ * not busy. `linear` timing, not ease: constant motion (this, unlike a
+ * one-shot entrance) should never appear to accelerate or decelerate.
+ * The fully circular shape (`rounded-full`) is a deliberate, narrow
+ * exception to the app's crisp `--radius-sm`/`--radius-lg` scale — a
+ * spinner has to be a true circle to read as one. Paper-colored, not
+ * ink-colored: every call site places it on a `variant="primary"`
+ * Button, whose fill is ink — an ink spinner would be invisible on it. */
+export function Spinner({ className = '' }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block h-[13px] w-[13px] shrink-0 animate-spin rounded-full border-2 border-paper/30 border-t-paper ${className}`}
+    />
+  );
+}
+
 /** Errors state what happened, in the interface's voice. Marked with the
  * exception ink — the same color a missing control carries — so the
  * meaning of that color stays consistent everywhere. */

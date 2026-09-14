@@ -5,6 +5,7 @@ import type { ReadinessSummary } from '@complydesk/shared';
 import { Notice } from '@/components/ui';
 import { useAuth } from '@/lib/useAuth';
 import { getReadiness } from '@/lib/api';
+import { useCountUp } from '@/lib/useCountUp';
 
 /**
  * Deliberately not a grid of stat cards. This is a control summary
@@ -65,6 +66,7 @@ export default function DashboardPage() {
   const { token, ready } = useAuth();
   const [summary, setSummary] = useState<ReadinessSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const animatedPercent = useCountUp(summary?.controlsWithValidEvidencePercent ?? null, 700);
 
   useEffect(() => {
     if (!token) return;
@@ -78,7 +80,7 @@ export default function DashboardPage() {
   const evidenced = summary ? summary.totalControls - summary.controlsMissingEvidence : 0;
 
   return (
-    <div>
+    <div className="page-enter">
       <header className="mb-8 flex items-baseline justify-between gap-4 border-b border-rule pb-3">
         <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-ink">Readiness</h1>
         <span className="font-mono text-[11px] text-ink-muted">
@@ -94,7 +96,7 @@ export default function DashboardPage() {
             <div className="flex items-end justify-between gap-6">
               <div>
                 <div className="tabular font-mono text-[52px] leading-none font-medium tracking-[-0.02em] text-ink">
-                  {summary ? `${summary.controlsWithValidEvidencePercent}%` : '—'}
+                  {animatedPercent !== null ? `${animatedPercent}%` : '—'}
                 </div>
                 <p className="mt-2.5 text-[13px] text-ink-muted">
                   {summary

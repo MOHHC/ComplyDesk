@@ -13,7 +13,7 @@ import {
   reviewClassification,
   uploadEvidence,
 } from '@/lib/api';
-import { Badge, Button, Field, Notice } from '@/components/ui';
+import { Badge, Button, Field, Notice, Spinner } from '@/components/ui';
 import { RegisterEmpty, RegisterHeader } from '@/components/register';
 
 // Roles allowed to upload evidence — kept in sync with the API's own
@@ -297,7 +297,7 @@ export default function ControlDetailPage() {
   if (!control) return null;
 
   return (
-    <div>
+    <div className="page-enter">
       <header className="mb-6 border-b border-rule pb-3">
         <span className="font-mono text-[12px] text-ink-muted">{control.code}</span>
         <h1 className="mt-0.5 text-[22px] font-semibold tracking-[-0.015em] text-ink">{control.title}</h1>
@@ -372,7 +372,14 @@ export default function ControlDetailPage() {
               onChange={(e) => setNotes(e.target.value)}
             />
             <Button type="submit" disabled={uploading || !file} className="w-auto">
-              {uploading ? 'Uploading & classifying…' : 'Upload'}
+              {uploading ? (
+                <>
+                  <Spinner className="mr-2" />
+                  Uploading & classifying…
+                </>
+              ) : (
+                'Upload'
+              )}
             </Button>
           </form>
         </section>

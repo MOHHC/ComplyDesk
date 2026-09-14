@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { PolicyDocStatus, PolicyDocument } from '@complydesk/shared';
 import { useAuth } from '@/lib/useAuth';
 import { listPolicyDocuments, uploadPolicyDocument } from '@/lib/api';
-import { Badge, Button, Notice } from '@/components/ui';
+import { Badge, Button, Notice, Spinner } from '@/components/ui';
 import { RegisterEmpty, RegisterHeader, RegisterSkeletonRows } from '@/components/register';
 
 // @Roles(OWNER, ADMIN, CONTRIBUTOR) on POST /policy-documents — same
@@ -22,6 +22,12 @@ const STATUS_TONE: Record<PolicyDocStatus, 'verified' | 'expiring' | 'exception'
   PROCESSING: 'expiring',
   FAILED: 'exception',
 };
+
+// Staggers a register row's entrance. Capped at the 8th row so a long,
+// unfiltered list doesn't take seconds to finish revealing.
+function rowEnterStyle(index: number): React.CSSProperties {
+  return { transitionDelay: `${Math.min(index, 8) * 40}ms` };
+}
 
 export default function PolicyDocumentsPage() {
   const { token, me, ready } = useAuth();
@@ -64,7 +70,7 @@ export default function PolicyDocumentsPage() {
   if (!ready) return null;
 
   return (
-    <div>
+    <div className="page-enter">
       <header className="mb-6 flex items-baseline justify-between gap-4 border-b border-rule pb-3">
         <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-ink">Policy documents</h1>
         <span className="font-mono text-[11px] text-ink-muted">{loading ? '—' : `${documents.length} on file`}</span>
@@ -87,7 +93,14 @@ export default function PolicyDocumentsPage() {
               className="text-[13px] text-ink-muted file:mr-3 file:cursor-pointer file:rounded-sm file:border file:border-rule file:bg-paper-raised file:px-3 file:py-1.5 file:text-[13px] file:text-ink hover:file:border-ink-muted/50"
             />
             <Button type="submit" disabled={uploading || !file} className="w-auto">
-              {uploading ? 'Uploading & processing…' : 'Upload'}
+              {uploading ? (
+                <>
+                  <Spinner className="mr-2" />
+                  Uploading & processing…
+                </>
+              ) : (
+                'Upload'
+              )}
             </Button>
           </div>
         </form>
@@ -99,8 +112,12 @@ export default function PolicyDocumentsPage() {
       ) : documents.length === 0 ? (
         <RegisterEmpty>No policy documents uploaded yet.</RegisterEmpty>
       ) : (
-        documents.map((doc) => (
-          <div key={doc.id} className="flex items-center gap-4 border-b border-rule py-3.5 pr-1 pl-1">
+        documents.map((doc, index) => (
+          <div
+            key={doc.id}
+            style={rowEnterStyle(index)}
+            className="register-row-enter flex items-center gap-4 border-b border-rule py-3.5 pr-1 pl-1"
+          >
             <span className="flex-[1.4] truncate text-[14px] font-medium text-ink">{doc.fileName}</span>
             <span className="flex-1 tabular font-mono text-[12px] text-ink-muted">
               {new Date(doc.createdAt).toLocaleDateString()}
