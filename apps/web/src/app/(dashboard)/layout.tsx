@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
+import { DemoBanner } from '@/components/DemoBanner';
 import { getMe } from '@/lib/api';
 import { clearToken, consumeHandoffToken, readToken } from '@/lib/session';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [isDemoTenant, setIsDemoTenant] = useState(false);
 
   useEffect(() => {
     // Must run before the token check: arriving here straight from
@@ -23,7 +25,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
 
     getMe(token)
-      .then(() => setAuthorized(true))
+      .then((me) => {
+        setIsDemoTenant(me.isDemoTenant);
+        setAuthorized(true);
+      })
       .catch(() => {
         clearToken();
         router.replace('/login');
@@ -46,7 +51,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
       <main className="min-w-0 flex-1 px-6 py-8 md:px-10 md:py-10">
-        <div className="mx-auto max-w-3xl">{children}</div>
+        <div className="mx-auto max-w-3xl">
+          {isDemoTenant && <DemoBanner />}
+          {children}
+        </div>
       </main>
     </div>
   );

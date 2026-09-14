@@ -52,6 +52,7 @@ export class AuthController {
       tenantId: this.cls.get('tenantId'),
       userId: this.cls.get('userId'),
       role: this.cls.get('role'),
+      isDemoTenant: this.cls.get('isDemoTenant') ?? false,
     };
   }
 }

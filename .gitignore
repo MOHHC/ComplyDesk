@@ -9,3 +9,4 @@ dist/
 *.log
 .playwright-mcp/
 apps/api/models/
+.vercel

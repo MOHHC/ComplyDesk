@@ -6,6 +6,9 @@ import { AuthShell, Button, Field, Notice, TextLink } from '@/components/ui';
 import { findWorkspaces } from '@/lib/api';
 import { buildWorkspaceUrl } from '@/lib/session';
 
+const DEMO_EMAIL = 'demo@complydesk.online';
+const DEMO_PASSWORD = 'ComplyDeskDemo123!';
+
 /**
  * Shown instead of the login form at the root domain, where no tenant is
  * resolvable. Login is tenant-scoped — the API resolves the workspace
@@ -63,6 +66,24 @@ export function WorkspaceFinder() {
           {submitting ? 'Looking up…' : 'Continue'}
         </Button>
       </form>
+
+      <div className="mt-6 border-t border-rule pt-5">
+        <p className="mb-3 text-[13px] text-ink-muted">
+          Just looking around? The demo workspace is pre-loaded with real data — no signup needed.
+        </p>
+        <Button
+          type="button"
+          variant="quiet"
+          onClick={() => {
+            window.location.href = buildWorkspaceUrl('demo', '/login?demo=1');
+          }}
+        >
+          Try the demo &rarr;
+        </Button>
+        <p className="mt-2 font-mono text-[11px] text-ink-muted">
+          {DEMO_EMAIL} / {DEMO_PASSWORD}
+        </p>
+      </div>
 
       {error && (
         <div className="mt-5">

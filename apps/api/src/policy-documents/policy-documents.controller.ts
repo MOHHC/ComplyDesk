@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../rbac/roles.guard';
 import { Roles } from '../rbac/roles.decorator';
 import { Audit } from '../audit/audit.decorator';
+import { DemoReadOnlyGuard } from '../common/demo-tenant.guard';
 import { PolicyDocumentsService } from './policy-documents.service';
 
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB, matching evidence uploads
@@ -25,6 +26,7 @@ export class PolicyDocumentsController {
 
   @Post()
   @Roles(Role.OWNER, Role.ADMIN, Role.CONTRIBUTOR)
+  @UseGuards(DemoReadOnlyGuard)
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: MAX_FILE_SIZE_BYTES } }))
   @Audit({ action: 'policydocument.upload' })
   upload(@UploadedFile() file: Express.Multer.File) {

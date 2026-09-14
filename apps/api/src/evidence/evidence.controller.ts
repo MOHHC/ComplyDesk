@@ -19,6 +19,7 @@ import { Roles } from '../rbac/roles.decorator';
 import { Audit } from '../audit/audit.decorator';
 import { TenantRateLimitGuard } from '../rate-limit/tenant-rate-limit.guard';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
+import { DemoReadOnlyGuard } from '../common/demo-tenant.guard';
 import { EvidenceService } from './evidence.service';
 import { EvidenceClassificationService } from './evidence-classification.service';
 import { UploadEvidenceDto } from './dto/upload-evidence.dto';
@@ -36,6 +37,7 @@ export class EvidenceController {
 
   @Post()
   @Roles(Role.OWNER, Role.ADMIN, Role.CONTRIBUTOR)
+  @UseGuards(DemoReadOnlyGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
@@ -80,6 +82,7 @@ export class EvidenceController {
   // gracefully underneath something else that already succeeded.
   @Post(':evidenceId/classification/retry')
   @Roles(Role.OWNER, Role.ADMIN, Role.CONTRIBUTOR)
+  @UseGuards(DemoReadOnlyGuard)
   @RateLimit('classification')
   @Audit({ action: 'evidence.retryClassification', model: 'evidenceClassification', idParam: 'evidenceId' })
   retryClassification(@Param('controlId') controlId: string, @Param('evidenceId') evidenceId: string) {
