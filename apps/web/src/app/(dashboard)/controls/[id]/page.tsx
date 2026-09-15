@@ -120,6 +120,7 @@ function ClassificationPanel({
 }) {
   const { token } = useAuth();
   const [busy, setBusy] = useState<ClassificationDecision | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
   const classification = evidence.classification;
 
   if (!classification) {
@@ -162,9 +163,17 @@ function ClassificationPanel({
   async function handleDecision(decision: ClassificationDecision) {
     if (!token) return;
     setBusy(decision);
+    setDecisionError(null);
     try {
       await reviewClassification(token, controlId, evidence.id, decision);
       onReviewed();
+    } catch (err) {
+      // Without this, a failed request left the row looking exactly like
+      // it had before the click — reviewStatus genuinely never changed,
+      // but nothing told you that. It read as "the buttons are still
+      // there even though I already made the decision," when what
+      // actually happened is the decision was never recorded at all.
+      setDecisionError(err instanceof Error ? err.message : 'Failed to record the decision');
     } finally {
       setBusy(null);
     }
@@ -220,6 +229,7 @@ function ClassificationPanel({
           </button>
         </div>
       )}
+      {decisionError && <p className="mt-1.5 text-[12px] text-exception">{decisionError}</p>}
     </div>
   );
 }

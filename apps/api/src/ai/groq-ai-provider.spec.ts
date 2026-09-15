@@ -54,7 +54,11 @@ describe('GroqAiProvider', () => {
     const provider = new GroqAiProvider();
     const result = await provider.checkControlCoverage(input);
 
-    expect(result).toEqual({ covered: false, reasoning: 'coverage check unavailable', citedChunkIndex: null });
+    expect(result).toEqual({
+      covered: false,
+      reasoning: 'Coverage check unavailable (empty response from provider). Re-run gap analysis to retry this control.',
+      citedChunkIndex: null,
+    });
   });
 
   it('checkControlCoverage degrades instead of throwing when the response content is not valid JSON', async () => {
@@ -68,17 +72,25 @@ describe('GroqAiProvider', () => {
     const provider = new GroqAiProvider();
     const result = await provider.checkControlCoverage(input);
 
-    expect(result).toEqual({ covered: false, reasoning: 'coverage check unavailable', citedChunkIndex: null });
+    expect(result).toEqual({
+      covered: false,
+      reasoning: 'Coverage check unavailable (malformed response from provider). Re-run gap analysis to retry this control.',
+      citedChunkIndex: null,
+    });
   });
 
-  it('checkControlCoverage degrades instead of throwing when the API call itself fails', async () => {
+  it('checkControlCoverage degrades instead of throwing when the API call itself fails, and records the status code', async () => {
     const { APIError } = jest.requireActual('groq-sdk');
     mockCreate.mockRejectedValue(new APIError(429, { message: 'rate limited' }, 'rate limited', new Headers()));
 
     const provider = new GroqAiProvider();
     const result = await provider.checkControlCoverage(input);
 
-    expect(result).toEqual({ covered: false, reasoning: 'coverage check unavailable', citedChunkIndex: null });
+    expect(result).toEqual({
+      covered: false,
+      reasoning: 'Coverage check unavailable (provider error, status 429). Re-run gap analysis to retry this control.',
+      citedChunkIndex: null,
+    });
   });
 
   it('checkControlCoverage passes an explicit timeout and retry budget bounded well under its transaction budget', async () => {
