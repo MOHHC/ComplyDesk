@@ -6,6 +6,10 @@ Small companies chasing SOC 2 mostly run compliance on a spreadsheet: a list of 
 
 The interesting part of building this wasn't the CRUD. It was making "your data never leaks into another tenant's response" true by construction instead of by convention, in a single shared Postgres database.
 
+![Gap analysis report on the live demo tenant, showing per-control coverage reasoning cited against an uploaded policy document](docs/screenshot.png)
+
+**Contents:** [Demo & stack](#demo--stack) · [Architecture](#architecture) · [The hardest problem: tenant isolation](#the-hardest-problem-tenant-isolation) · [Other engineering decisions](#other-engineering-decisions) · [Lessons learned](#lessons-learned-the-annoying-kind) · [Next steps](#what-id-do-differently--next-steps) · [Local setup](#local-setup)
+
 ## Demo & stack
 
 **Live demo:** [complydesk.online](https://complydesk.online) → **Try the demo**, or go straight to [demo.complydesk.online/login](https://demo.complydesk.online/login?demo=1) (`demo@complydesk.online` / `ComplyDeskDemo123!`, both public on purpose). No signup needed — the tenant is pre-loaded with real data. Sign up instead and you get your own real subdomain (`<yourslug>.complydesk.online`); tenant resolution runs on it exactly the way it would for a real customer, not through a query param.
@@ -148,3 +152,7 @@ npm run dev   # apps/api on :3001, apps/web on :3000, together
 ```
 
 Visit a tenant subdomain locally, e.g. `acme.localhost:3000`. Each app also runs standalone (`npm run dev -w apps/api` / `-w apps/web`). Full test suite: `npm test` (unit) and the e2e specs under `apps/api/test/` (Prisma migrations run against a real Neon branch, no mocked database).
+
+---
+
+Built by **Mohamad Hage Chehade** — [GitHub](https://github.com/MOHHC) · [LinkedIn](https://www.linkedin.com/in/mohamad-hage-chehade-6a411a2b1/)
