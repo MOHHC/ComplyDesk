@@ -1,10 +1,14 @@
 import type {
+  AcceptInviteInput,
   AuthResponse,
   ClassificationDecision,
   Control,
   ControlStatus,
+  CreateInviteInput,
   Evidence,
   GapAnalysisReport,
+  Invite,
+  InviteInfo,
   LoginInput,
   MeResponse,
   Member,
@@ -160,6 +164,24 @@ export function getReadiness(token: string): Promise<ReadinessSummary> {
 
 export function listMembers(token: string): Promise<Member[]> {
   return request<Member[]>('/members', { token });
+}
+
+export function createInvite(token: string, input: CreateInviteInput): Promise<Invite> {
+  return request<Invite>('/invites', { method: 'POST', body: input, token });
+}
+
+export function listInvites(token: string): Promise<Invite[]> {
+  return request<Invite[]>('/invites', { token });
+}
+
+/** Pre-auth — no token. Backs the join page's "You've been invited to
+ * <tenant> as <role>" before anyone has typed anything. */
+export function getInviteInfo(code: string): Promise<InviteInfo> {
+  return request<InviteInfo>(`/auth/invites/${code}`);
+}
+
+export function acceptInvite(input: AcceptInviteInput): Promise<SignupResponse> {
+  return request<SignupResponse>('/auth/accept-invite', { method: 'POST', body: input });
 }
 
 export function reviewClassification(

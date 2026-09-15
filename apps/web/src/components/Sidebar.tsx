@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/tasks', label: 'Tasks' },
   { href: '/policy-documents', label: 'Policy documents' },
   { href: '/gap-analysis', label: 'Gap analysis' },
+  { href: '/team', label: 'Team' },
 ];
 
 export function Sidebar() {

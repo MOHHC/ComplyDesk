@@ -49,6 +49,7 @@ model Tenant {
   policyChunks            PolicyChunk[]
   gapAnalysisRuns         GapAnalysisRun[]
   gapAnalysisResults      GapAnalysisResult[]
+  invites                 Invite[]
 }
 
 model User {
@@ -65,6 +66,8 @@ model User {
   reviewedClassifications EvidenceClassification[]
   uploadedPolicyDocuments PolicyDocument[]
   gapAnalysisRuns         GapAnalysisRun[]
+  createdInvites          Invite[]                 @relation("InviteCreatedBy")
+  usedInvites             Invite[]                 @relation("InviteUsedBy")
 }
 
 model Membership {
@@ -78,6 +81,38 @@ model Membership {
 
   @@unique([tenantId, userId])
   @@index([tenantId, role])
+}
+
+// A shareable code that lets someone join this tenant with a
+// pre-chosen role, without email delivery — the code itself is the
+// invite, generated with real entropy (32 random bytes, base64url) so
+// it's the secret rather than something guessable. Creation and listing
+// are normal RLS-scoped operations (an OWNER/ADMIN viewing their own
+// workspace); redeeming one is not, since the person redeeming it has no
+// tenant context yet — see the invite_lookup_by_code() SECURITY DEFINER
+// function (same shape as auth_email_exists / auth_workspaces_for_email)
+// that the accept-invite flow reads through instead of a direct query.
+model Invite {
+  id          String    @id @default(uuid())
+  tenantId    String
+  code        String    @unique
+  role        Role
+  createdById String
+  expiresAt   DateTime
+  // Both null until redeemed. Set together, atomically, inside the same
+  // transaction that creates the new Membership — see
+  // AuthService.acceptInvite(). A non-null usedAt is what makes the
+  // invite one-time-use; expiresAt is checked independently at redemption
+  // time, so an invite can be rejected for either reason without the two
+  // being conflated.
+  usedAt      DateTime?
+  usedById    String?
+  createdAt   DateTime  @default(now())
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("InviteCreatedBy", fields: [createdById], references: [id])
+  usedBy      User?     @relation("InviteUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
 }
 
 model Control {

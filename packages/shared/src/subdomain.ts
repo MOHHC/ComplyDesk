@@ -23,7 +23,7 @@ export function parseSubdomain(host: string | undefined): string | null {
  * deliberately does not report as a tenant; the two answer different
  * questions and must not be conflated.
  */
-function rootHostname(hostname: string): string {
+export function rootHostname(hostname: string): string {
   if (IPV4.test(hostname)) return hostname;
 
   const parts = hostname.split('.');
@@ -65,4 +65,17 @@ export function buildTenantUrl(
   path: string,
 ): string {
   return `${location.protocol}//${buildTenantHost(location.host, slug)}${path}`;
+}
+
+/**
+ * Absolute URL on the *root* domain, with any subdomain stripped —
+ * preserving protocol/port. Used for an invite link: the recipient has
+ * no workspace of their own to land on, and the whole point of a
+ * shareable link is that it works regardless of which subdomain (if any)
+ * the person generating it happens to be on.
+ */
+export function buildRootUrl(location: { protocol: string; host: string }, path: string): string {
+  const [hostname, port] = location.host.toLowerCase().split(':');
+  const root = rootHostname(hostname);
+  return `${location.protocol}//${port ? `${root}:${port}` : root}${path}`;
 }

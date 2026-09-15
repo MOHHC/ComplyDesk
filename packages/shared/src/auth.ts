@@ -51,3 +51,39 @@ export interface WorkspaceSummary {
   slug: string;
   name: string;
 }
+
+export interface CreateInviteInput {
+  role: Role;
+}
+
+/** An outstanding (unredeemed, unexpired) invite, as shown on the Team
+ * page's pending-invites list. Never carries the code's owning tenant —
+ * the caller is always already scoped to it. */
+export interface Invite {
+  id: string;
+  code: string;
+  role: Role;
+  expiresAt: string;
+  createdAt: string;
+  createdBy: { name: string; email: string };
+}
+
+export interface AcceptInviteInput {
+  code: string;
+  email: string;
+  password: string;
+  name: string;
+}
+
+/** Pre-auth: what the join page shows before anyone has typed anything,
+ * fetched by code alone. `valid` is the single field the UI actually
+ * gates the form on; `expired`/`used` exist so the page can say *why*
+ * not, rather than a generic "invalid invite". */
+export interface InviteInfo {
+  tenantName: string;
+  tenantSlug: string;
+  role: Role;
+  valid: boolean;
+  expired: boolean;
+  used: boolean;
+}
