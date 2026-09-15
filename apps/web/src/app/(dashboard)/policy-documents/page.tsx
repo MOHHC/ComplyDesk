@@ -81,8 +81,9 @@ export default function PolicyDocumentsPage() {
       {me && CAN_UPLOAD.has(me.role) && (
         <form onSubmit={handleUpload} className="mb-8 border-b border-rule pb-6">
           <p className="mb-3 text-[13px] text-ink-muted">
-            PDF, plain text, or Markdown. Uploading processes the document immediately — this can take a few
-            seconds for a longer file.
+            {me.isDemoTenant
+              ? 'Uploading is disabled on the public demo tenant, so one visitor can\'t change what the next one sees.'
+              : 'PDF, plain text, or Markdown. Uploading processes the document immediately — this can take a few seconds for a longer file.'}
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input
@@ -90,9 +91,15 @@ export default function PolicyDocumentsPage() {
               accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               required
-              className="text-[13px] text-ink-muted file:mr-3 file:cursor-pointer file:rounded-sm file:border file:border-rule file:bg-paper-raised file:px-3 file:py-1.5 file:text-[13px] file:text-ink hover:file:border-ink-muted/50"
+              disabled={me.isDemoTenant}
+              className="text-[13px] text-ink-muted file:mr-3 file:cursor-pointer file:rounded-sm file:border file:border-rule file:bg-paper-raised file:px-3 file:py-1.5 file:text-[13px] file:text-ink hover:file:border-ink-muted/50 disabled:opacity-50"
             />
-            <Button type="submit" disabled={uploading || !file} className="w-auto">
+            <Button
+              type="submit"
+              disabled={uploading || !file || me.isDemoTenant}
+              title={me.isDemoTenant ? 'Disabled on the demo tenant' : undefined}
+              className="w-auto"
+            >
               {uploading ? (
                 <>
                   <Spinner className="mr-2" />

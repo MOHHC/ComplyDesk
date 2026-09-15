@@ -5,6 +5,7 @@ import { RolesGuard } from '../rbac/roles.guard';
 import { Roles } from '../rbac/roles.decorator';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import { TenantRateLimitGuard } from '../rate-limit/tenant-rate-limit.guard';
+import { DemoReadOnlyGuard } from '../common/demo-tenant.guard';
 import { Audit } from '../audit/audit.decorator';
 import { GapAnalysisService } from './gap-analysis.service';
 
@@ -15,6 +16,7 @@ export class GapAnalysisController {
 
   @Post('run')
   @Roles(Role.OWNER, Role.ADMIN)
+  @UseGuards(DemoReadOnlyGuard)
   @RateLimit('gapAnalysis')
   @Audit({ action: 'gapanalysis.run' })
   run() {

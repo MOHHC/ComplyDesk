@@ -8,6 +8,9 @@ import { AuthShell, Button, Field, Notice, TextLink } from '@/components/ui';
 import { login } from '@/lib/api';
 import { storeToken } from '@/lib/session';
 
+const DEMO_EMAIL = 'demo@complydesk.online';
+const DEMO_PASSWORD = 'ComplyDeskDemo123!';
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -15,6 +18,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [workspace, setWorkspace] = useState<string | null>(null);
+  const [prefilledDemo, setPrefilledDemo] = useState(false);
 
   // null while undetermined — the hostname is only readable on the
   // client, and rendering either branch during SSR would hydrate wrong.
@@ -24,6 +28,15 @@ export default function LoginPage() {
     const slug = parseSubdomain(window.location.hostname);
     setWorkspace(slug);
     setOnTenantSubdomain(slug !== null);
+
+    // Read the query string directly (not useSearchParams()) so this
+    // page can stay a plain static export like the rest of (auth)/,
+    // same reasoning as reading window.location.hostname above.
+    if (new URLSearchParams(window.location.search).get('demo') === '1') {
+      setEmail(DEMO_EMAIL);
+      setPassword(DEMO_PASSWORD);
+      setPrefilledDemo(true);
+    }
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -67,6 +80,14 @@ export default function LoginPage() {
         <div className="mb-6 flex items-baseline justify-between border-y border-rule py-2.5">
           <span className="text-[13px] text-ink-muted">Workspace</span>
           <span className="font-mono text-[13px] font-medium text-ink">{workspace}</span>
+        </div>
+      )}
+
+      {prefilledDemo && (
+        <div className="mb-6">
+          <Notice tone="neutral" role="status">
+            Demo credentials filled in — just click Sign in.
+          </Notice>
         </div>
       )}
 

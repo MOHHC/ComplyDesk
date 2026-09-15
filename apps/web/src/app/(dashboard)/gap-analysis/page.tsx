@@ -70,10 +70,17 @@ export default function GapAnalysisPage() {
       {me && CAN_RUN.has(me.role) && (
         <div className="mb-8 border-b border-rule pb-6">
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            Checks every control against the uploaded policy documents. This can take a while — each control is
-            checked individually against the policy library.
+            {me.isDemoTenant
+              ? 'Re-running gap analysis is disabled on the public demo tenant, so one visitor can\'t use up the next one\'s report. The one below already ran for real.'
+              : 'Checks every control against the uploaded policy documents. This can take a while — each control is checked individually against the policy library.'}
           </p>
-          <Button type="button" onClick={handleRun} disabled={running} className="w-auto">
+          <Button
+            type="button"
+            onClick={handleRun}
+            disabled={running || me.isDemoTenant}
+            title={me.isDemoTenant ? 'Disabled on the demo tenant' : undefined}
+            className="w-auto"
+          >
             {running ? (
               <>
                 <Spinner className="mr-2" />

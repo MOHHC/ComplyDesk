@@ -1,185 +1,150 @@
 # ComplyDesk
 
-npm workspaces monorepo:
+## What it is
 
-- `apps/web` — Next.js 16 (App Router) frontend, port 3000.
-- `apps/api` — NestJS 11 (CommonJS + Jest — Nest 12 ships ESM-only, incompatible
-  with classic Jest) + Prisma API, port 3001. Only this app talks to Postgres.
-- `packages/shared` — shared TypeScript types (`Role`, auth DTOs), built to `dist/` —
-  run `npm run build -w packages/shared` after editing it, before restarting the apps.
+Small companies chasing SOC 2 mostly run compliance on a spreadsheet: a list of controls, a folder of screenshots labeled "evidence," and someone's memory of what's expired. ComplyDesk replaces that spreadsheet with a proper multi-tenant register. Each company gets a workspace seeded with a standard control set, uploads evidence against each control, and gets a dashboard of what's covered, what's missing, and what's about to expire. An AI layer on top reads uploaded evidence well enough to auto-classify it against a control, and reads an uploaded policy document well enough to flag which controls it doesn't actually cover.
 
-## Why npm workspaces (not pnpm/Turborepo)
+The interesting part of building this wasn't the CRUD. It was making "your data never leaks into another tenant's response" true by construction instead of by convention, in a single shared Postgres database.
 
-pnpm and Turborepo aren't installed in this environment, and at 2 apps + 1 shared
-package the build-caching Turborepo gives isn't paying for its setup cost yet. npm
-workspaces is zero extra install and already proven working here. Revisit Turborepo
-if build/test times become a real pain as the repo grows.
+## Demo & stack
 
-## Setup
+**Live demo:** [complydesk.online](https://complydesk.online) → **Try the demo**, or go straight to [demo.complydesk.online/login](https://demo.complydesk.online/login?demo=1) (`demo@complydesk.online` / `ComplyDeskDemo123!`, both public on purpose). No signup needed — the tenant is pre-loaded with real data. Sign up instead and you get your own real subdomain (`<yourslug>.complydesk.online`); tenant resolution runs on it exactly the way it would for a real customer, not through a query param.
 
-    npm install
-    npm run build -w packages/shared
-    npm run dev          # runs apps/api (:3001) and apps/web (:3000) together
+| Layer | Choice |
+|---|---|
+| Frontend | Next.js 16 (App Router), React 19 — deployed on Vercel |
+| API | NestJS 11 (CommonJS + Jest — Nest 12 ships ESM-only, which classic Jest can't consume) — deployed on Render |
+| Database | PostgreSQL on [Neon](https://neon.tech), via Prisma 7 (`pg` driver adapter) — same production branch the API talks to locally |
+| Vector search | pgvector, `ivfflat` index, 384-dim embeddings |
+| Object storage | Neon Object Storage (S3-compatible), presigned URLs only |
+| AI | Gemini (vision + embeddings) and Groq (text reasoning) behind one interface — see below |
+| Monorepo | npm workspaces (`apps/web`, `apps/api`, `packages/shared`) |
 
-Each app also runs standalone: `npm run dev -w apps/api` / `npm run dev -w apps/web`.
+No Redis, despite what the rate limiter below might suggest. See [Next steps](#what-id-do-differently--next-steps).
 
-## Neon
+### About the demo tenant
 
-Linked to Neon project **ComplyDesk** (`restless-water-11477407`) in org **Mohamad**
-(`org-royal-boat-08830339`). Branches: `production` (default) and `test` (for e2e
-tests, branched off `production`). `.neon` at the repo root pins the link (git-ignored).
+Everything in it is real, pre-generated data — an 18-control set, evidence uploaded and classified by the actual Gemini pipeline (including one file classified `FAILED` because it genuinely tripped Gemini's free-tier rate pacer mid-seed, left as-is rather than faked, and one deliberately irrelevant upload the AI correctly declined to match to anything), a policy document actually chunked and embedded, and a gap-analysis report from a real Groq run with real citations. None of it was hand-inserted into the database. Worth two minutes: the readiness **Dashboard**, then **Controls** (click one for its evidence + AI classification), then **Gap Analysis** for the citation-backed report, then **Tasks**.
 
-## Multi-tenancy
+Uploading evidence, uploading a policy document, retrying a classification, and re-running gap analysis are all disabled on this one tenant (`Tenant.isDemo`, enforced server-side by `DemoReadOnlyGuard` on each of those four routes) — not rate-limited or reset on a timer, just off — so one visitor's clicking can't spoil the next visitor's tour. Everything else (browsing, reviewing an AI suggestion, creating/reassigning tasks) stays fully interactive.
 
-Tenant is resolved from the request's `Host` subdomain (e.g. `acme.localhost:3000` →
-tenant `acme`); user identity from a JWT bearer token. Both combine into a per-request
-context (`{ tenantId, userId, role }`) via `nestjs-cls`.
+## Architecture
 
-Tenant resolution uses a header-based fallback (`X-Tenant-Slug`) for local dev and
-direct API calls; a reverse proxy forwarding the browser's real subdomain as the
-`Host` header is the documented production-correct approach, not implemented here to
-keep scope focused on the core multi-tenancy architecture.
+```
+                        Browser (tenant subdomain, e.g. acme.complydesk.online)
+                                        │
+                                        │  fetch(..., headers: { X-Tenant-Slug })
+                                        ▼
+                        ┌───────────────────────────────┐
+                        │        NestJS middleware        │
+                        │                                 │
+                        │  1. TenantMiddleware            │
+                        │     Host subdomain, else         │
+                        │     X-Tenant-Slug header  ───►  cls.tenantId
+                        │                                 │
+                        │  2. TenantTransactionMiddleware │
+                        │     opens one Prisma tx for the │
+                        │     rest of the request, runs    │
+                        │     SELECT set_config(           │
+                        │       'app.tenant_id', id, true) │
+                        │     (SET LOCAL semantics)        │
+                        │                                 │
+                        │  nestjs-cls (AsyncLocalStorage)  │
+                        │  carries {tenantId, userId,      │
+                        │  role, tenantTx} through every    │
+                        │  guard / interceptor / handler   │
+                        │  for this request, with zero      │
+                        │  prop-drilling                    │
+                        └───────────────┬─────────────────┘
+                                        │
+                     JwtAuthGuard ──► RolesGuard ──► AuditInterceptor
+                                        │  (every mutation, best-effort,
+                                        │   same transaction as the write)
+                                        ▼
+                        ┌───────────────────────────────┐
+                        │   Postgres (Neon), role:        │
+                        │   app_runtime — NOBYPASSRLS      │
+                        │                                 │
+                        │   FORCE ROW LEVEL SECURITY on    │
+                        │   every tenant-owned table:       │
+                        │   Membership, Control, Evidence,  │
+                        │   Task, AuditEvent, PolicyDocument│
+                        │   PolicyChunk, GapAnalysisRun/Result,│
+                        │   EvidenceClassification, Tenant, │
+                        │   User (narrower policies)        │
+                        │                                 │
+                        │   USING (tenantId = current_     │
+                        │   setting('app.tenant_id'))       │
+                        └───────────────┬─────────────────┘
+                                        │
+                          ┌─────────────┴─────────────┐
+                          ▼                            ▼
+                 GeminiAiProvider              GroqAiProvider
+                 classifyEvidence (vision)     checkControlCoverage
+                 embed (local pgvector input)  (text-only gap analysis)
+```
 
-## Row-Level Security
+Everything below `TenantTransactionMiddleware` (guards, interceptors, service code, route handlers) runs inside one transaction that already has `app.tenant_id` set. A service method that forgets to add `WHERE tenantId = ...` still doesn't leak. RLS filters it at the database, regardless of what the application code remembered to write.
 
-Every tenant-owned table (`Membership`, `Control`, `Evidence`, `Task`, `AuditEvent`,
-and `Tenant`/`User` via narrower policies — see the migrations for the reasoning
-specific to each) has Postgres RLS enabled and forced, scoped to
-`current_setting('app.tenant_id')`. The running app connects as `app_runtime`, a
-least-privilege role with no schema privileges and `NOBYPASSRLS`; migrations run as
-the table owner. `TenantTransactionMiddleware` opens one transaction per request and
-sets `app.tenant_id` via `SET LOCAL` semantics before anything else runs. See
-`apps/api/prisma/migrations/*_add_rls_*` and `*_rls_tenant_and_user` for the full
-reasoning, including two Neon-specific defaults that had to be worked around
-(`BYPASSRLS` defaulting on for CLI-created roles, and a shadow-database side effect
-from `CREATE ROLE` being cluster-wide).
+## The hardest problem: tenant isolation
 
-## Core features (Phase 3)
+The whole design rests on one claim: **an application bug in a service method cannot leak another tenant's row.** Getting from "we usually filter by tenant" to something you can actually stand behind took a few Postgres and Neon specifics most CRUD apps never touch.
 
-- **Controls**: each tenant is seeded on signup with the 18 controls in
-  `seeds/controls.json`. `GET /controls` filters by `category` and by a computed
-  `status` (`no_evidence` / `has_evidence` / `evidence_expired`, based on the most
-  recent Evidence row's `collectedAt` + the control's `refreshIntervalDays`).
-- **Evidence**: `POST /controls/:id/evidence` uploads a file to Neon Object Storage
-  (a private, per-branch S3-compatible bucket) and writes a metadata row linking it
-  to the control. Downloads are always via a short-lived presigned URL generated on
-  request — nothing is ever a stored public link.
-- **Tasks**: `POST /tasks` assigns a control to a member with a due date.
-  `PATCH /tasks/:id/status` is also open to the assignee themselves (not just
-  OWNER/ADMIN), restricted to their own tasks.
-- **Dashboard**: `GET /dashboard/readiness` returns % of controls with valid
-  evidence, count missing evidence, and count expiring within 30 days.
-- **RBAC**: `Role` is `OWNER | ADMIN | CONTRIBUTOR | AUDITOR`, enforced by
-  `RolesGuard` + a `@Roles()` decorator (paired with `JwtAuthGuard`, in that order).
-  A route with no `@Roles()` is open to any authenticated member. Matrix:
-  | Action | OWNER | ADMIN | CONTRIBUTOR | AUDITOR |
-  |---|---|---|---|---|
-  | View controls/evidence/tasks/dashboard | ✅ | ✅ | ✅ | ✅ |
-  | Upload evidence | ✅ | ✅ | ✅ | ❌ |
-  | Create/reassign tasks | ✅ | ✅ | ❌ | ❌ |
-  | Update status of a task assigned to you | ✅ | ✅ | ✅ | ❌ |
-- **Audit log**: `AuditInterceptor` (registered globally) records every mutating
-  request (POST/PUT/PATCH/DELETE) to `AuditEvent` — tenant, actor, action, target
-  resource, and a `{ field: { before, after } }` diff — inside the same transaction
-  as the mutation itself, so a write and its audit row commit or roll back together.
-  Two limitations, both by construction rather than oversight: a Guard rejection
-  (e.g. RBAC 403) never reaches an interceptor in Nest's pipeline, so denied
-  attempts aren't logged here; and signup writes its own `auth.signup` row directly,
-  since no tenant transaction exists yet for the interceptor to use.
+**`FORCE ROW LEVEL SECURITY`, and the role it actually binds.** `ENABLE ROW LEVEL SECURITY` alone doesn't restrict the table's *owner*. Postgres exempts owners from RLS by default, which quietly defeats the whole point if your app connects as the same role that ran the migrations. The app connects as a separate, least-privilege `app_runtime` role instead: `LOGIN`, `NOBYPASSRLS`, `GRANT SELECT/INSERT/UPDATE/DELETE` on exactly the tables it needs, no DDL. Migrations run as the table owner. `FORCE ROW LEVEL SECURITY` is what makes the policies bind even against a hypothetical owner-role connection, though in practice `app_runtime` never hits that problem, since it isn't the owner to begin with.
 
-## AI layer (Phase 5)
+Two Neon-specific footguns surfaced writing this, both documented inline in the migration rather than left as tribal knowledge:
+- Roles created through Neon's own console/CLI (`neon roles create`) get `BYPASSRLS` by default, which makes them permanently un-constrainable by any policy regardless of `FORCE`. `app_runtime` is created with plain SQL (`CREATE ROLE`) instead, which defaults to `NOBYPASSRLS` and (as of Postgres 16) gives the creating role `ADMIN OPTION` on it — that's what lets the following `ALTER ROLE ... NOBYPASSRLS` succeed at all.
+- `CREATE ROLE` is cluster-wide, not database-scoped. `prisma migrate dev` replays every migration against a throwaway shadow database first. That creates the role for real, cluster-wide, before the migration ever reaches the actual target database. Every statement in the RLS migrations is written idempotent (`DO $$ ... IF NOT EXISTS`, `DROP POLICY IF EXISTS`) specifically so a second `CREATE ROLE app_runtime` colliding with itself doesn't break the migration.
 
-Evidence classification and gap analysis are backed by an `AiProvider` interface
-(`apps/api/src/ai/ai-provider.interface.ts`), selected via the `AI_PROVIDER` DI
-token: `ClaudeAiProvider` (Claude for reasoning, a local `all-MiniLM-L6-v2` model
-for embeddings) in the running app, `FakeAiProvider` in every automated test. Every
-AI-touching e2e spec overrides `AI_PROVIDER` at the Nest DI level, so
-`ClaudeAiProvider` — and the Anthropic client it constructs — is never instantiated
-during `npm test` / `npm run test:e2e`; `apps/api/.env.test` also carries no
-`ANTHROPIC_API_KEY`. To exercise the real provider by hand, add
-`ANTHROPIC_API_KEY=<key>` to `apps/api/.env` (gitignored, not committed) — nothing
-in the automated suites depends on it.
+**`SET LOCAL`, not `SET`.** The tenant scope for a request is set via `SELECT set_config('app.tenant_id', <id>, true)`. The third argument is what makes it transaction-local (`SET LOCAL` semantics), not a plain session-wide `SET`. This matters specifically because of connection pooling: a plain `SET` would persist on the underlying connection after the transaction commits, and the next request Prisma hands that pooled connection to would silently inherit the previous tenant's context. `set_config`'s value is also passed as a bound parameter rather than interpolated into the SQL string, since `SET LOCAL` itself has no parameter-placeholder syntax in Postgres. It's the one place tenant id touches raw SQL directly, so it's the one place that actually matters.
 
-Policy documents are chunked and embedded locally into `PolicyChunk.embedding`
-(pgvector, 384 dims), searched via an `ivfflat` index (`lists = 100`). RLS filters
-matching rows down to the current tenant *after* that index has already picked its
-candidates, so a tenant holding a small share of the shared table could otherwise
-get back too few (even zero) results despite having relevant content.
-`GapAnalysisService.run()` works around this by setting `ivfflat.probes = 100`
-(`SET LOCAL`, transaction-scoped) — equal to `lists`, i.e. every list gets probed,
-turning the search into an exhaustive scan with exact recall. This was a deliberate
-choice given gap analysis's cost profile (on-demand, capped at 5 runs/hour/tenant,
-~18 of these queries per run): the tradeoff is that per-query cost now scales with
-the total `PolicyChunk` row count **across all tenants**, not just the current
-one. As that shared table grows, the first symptom will be gap-analysis runs
-aborting on the enclosing transaction's 75s timeout
-(`gap-analysis-transaction.middleware.ts`) rather than anything that obviously
-points at the vector index. If gap analysis ever needs to get faster, this is the
-first thing to revisit; per-tenant partitioning of `PolicyChunk` and switching the
-index to HNSW (which tolerates filtered search better than ivfflat) were both
-deliberately deferred as unnecessary at current scale.
+**The `::uuid` cast is load-bearing, not decoration.** Every policy reads `"tenantId"::uuid = current_setting('app.tenant_id')::uuid`. On a *fresh* connection, an unset `app.tenant_id` makes `current_setting()` throw, which is exactly what should happen if a request somehow reaches an RLS-protected table with no tenant context wired. But on a *pooled* connection where an earlier transaction already set the parameter once, Postgres remembers the parameter exists, and `current_setting()` returns an empty string instead of throwing on the next transaction, even though `SET LOCAL` correctly reset its *value*. A plain text comparison against `''` would silently read as "this tenant has zero rows": a wiring bug that looks exactly like an empty account. The `::uuid` cast turns that empty string back into a loud, unambiguous error instead. Both behaviors (throws on a genuinely fresh connection, throws on the pooled-empty-string case) are asserted directly in the isolation suite, not just reasoned about in a comment.
 
-### Production migration follow-up (not yet applied)
+**`Tenant` and `User` don't fit the same policy shape as everything else**, because neither has a `tenantId` column to compare against: `Tenant` *is* the tenant, and `User` is a global identity that only relates to a tenant through `Membership`. `Tenant` gets `SELECT` left open (`USING (true)`) deliberately, since `TenantMiddleware` has to look a tenant up by slug *before* any `app.tenant_id` context can exist — a single `FOR ALL` policy referencing `current_setting()` here would make every request unable to resolve a tenant at all. Writes stay scoped (`WITH CHECK` as well as `USING`, so an `UPDATE` can't pass the read check on your own row and then rewrite `id` to point at someone else's). `User` scopes both reads and writes through an `EXISTS` subquery against `Membership`, with one genuinely non-obvious finding along the way: Postgres applies a table's `SELECT` policy to `UPDATE`/`DELETE` whenever the statement's `WHERE` clause reads existing columns, which any qualified `WHERE` does. So a *qualified* cross-tenant write (`UPDATE ... WHERE id = <other tenant's user>`) was already blocked to 0 rows by the `SELECT` policy alone, verified on Neon's own test branch. The gap the `Membership` write-policy actually closes is the *unqualified bulk write*: `UPDATE "User" SET name = 'x'` with no `WHERE` at all, which affected 2 rows across 2 tenants under a naive `USING (true)`, and exactly 1 under the membership-scoped policy.
 
-The AI-layer schema (`apps/api/prisma/migrations/20260901120000_ai_layer`) and its
-follow-up adding the missing `tenantId -> Tenant` foreign keys
-(`20260901150000_ai_layer_tenant_fk`) have been applied to the Neon `test` branch
-only. Applying them to `production` is a deliberate, separate step gated on an
-explicit go-ahead, not something to run automatically:
+The full reasoning lives in the migrations themselves: [`20260831140238_add_rls_and_app_runtime_role`](apps/api/prisma/migrations/20260831140238_add_rls_and_app_runtime_role/migration.sql) and [`20260831201500_rls_tenant_and_user`](apps/api/prisma/migrations/20260831201500_rls_tenant_and_user/migration.sql). Every claim above is backed by a test in [`apps/api/test/rls-isolation.e2e-spec.ts`](apps/api/test/rls-isolation.e2e-spec.ts): roughly 30 cases covering cross-tenant SELECT/UPDATE/DELETE, `WITH CHECK` forgery on INSERT, a service method with no tenant filter in its own code (still returns nothing cross-tenant, since RLS catches what the code forgot), the pooled-empty-string throw, and per-table coverage of every RLS-protected table including the five AI-layer tables added later.
 
-1. `npx prisma migrate deploy` against `production`'s `DATABASE_URL_UNPOOLED`.
-2. Re-run the same read-only RLS-state verification query used on `test` (see the
-   AI-layer migration's own verification steps) against `production`.
+## Other engineering decisions
 
-Two things worth knowing before giving that go-ahead:
+**Two AI providers, split by what they're actually good at, not one vendor for everything.** `classifyEvidence` (needs vision, for photo/scan evidence) and `embed` stay on Gemini; `checkControlCoverage` (pure text reasoning against policy chunks) moved to Groq. Both sit behind one `AiProvider` interface via a `CompositeAiProvider` that routes internally. Callers have no idea two vendors are involved. The move happened because Gemini's free tier is roughly 4 RPM and 20 requests a day, and a single gap-analysis run costs about 18 of those: most of a day's budget in one click. The first model picked for Groq (`llama-3.3-70b-versatile`) turned out to be retired, discovered by 404s on a real run against a real API key rather than by reading changelogs; `openai/gpt-oss-120b` replaced it after confirming it was actually in the account's live model list. A second real run against the corrected model finished in about 51 seconds with 0 degraded controls, 0 errors, 0 429s. The rate limit was then re-derived from that live data (Groq's confirmed ~1,000 req/day vs. Gemini's ~20/day) rather than left at the old Gemini-sized number. Retired models that still show up in a provider's own docs are an annoying, recurring class of bug — you don't find them until you actually make the call.
 
-- **Locking/validation cost.** The `tenantId` FK migration adds five foreign keys.
-  Adding a foreign key in Postgres takes a `SHARE ROW EXCLUSIVE` lock on both
-  tables (blocks concurrent writes, not reads) and validates every existing row in
-  the referencing table. That was instant against a test branch holding 0-2 rows
-  per table; against a populated production `PolicyChunk` (one row per document
-  chunk, each carrying a 384-dim embedding) it will not be — plan for a low-traffic
-  window. Prisma still runs the whole migration file as one transaction, so it's
-  atomic: it cannot leave the database in a half-applied state even if it has to
-  wait a while for the lock.
-- **`citationChunkId` gets nulled, not just orphans deleted.** The same
-  migration's orphan cleanup deletes `PolicyChunk`/`PolicyDocument`/`GapAnalysisRun`
-  rows whose `tenantId` matches no `Tenant` (plus a pre-flight guard that aborts
-  instead of deleting if any live tenant's row would be caught in the blast radius
-  of a *pre-existing* cascade — see the migration file's own comments).
-  `GapAnalysisResult.citationChunkId` references `PolicyChunk` with `ON DELETE SET
-  NULL`, so if a live tenant's `GapAnalysisResult` happens to cite a chunk that gets
-  deleted as an orphan, its citation is nulled rather than the result row being
-  touched. Reasonable — the citation was already dangling — but worth knowing
-  before running it, not discovering after.
+Tenant resolution has a similar honesty problem worth naming directly. It's Host-subdomain first (`acme.complydesk.online` → tenant `acme`), but browsers never let JavaScript override the `Host` header on `fetch`/`XHR`, so a browser calling a non-subdomained API URL can never resolve a tenant via `Host` alone. `X-Tenant-Slug`, computed client-side from `window.location.hostname`, is the fallback the web app actually sends. The textbook production answer is a reverse proxy that terminates the real subdomain and forwards it as `Host` (or an equivalent trusted header) to the API, so tenant resolution never depends on a client-supplied value at all. That's not implemented here. The header fallback isn't itself a security hole — `JwtAuthGuard` still requires a real `Membership` row for whichever tenant gets resolved, so claiming an arbitrary slug gains nothing without a valid token for a member of it — but it does mean tenant resolution trusts an untrusted client, for local dev and for any deployment that isn't behind that proxy. I left it this way on purpose, to keep scope on the core multi-tenancy and RLS work rather than infra.
 
-### `prisma migrate diff` reports drift — one half benign, one half real
+Audit logging runs inside the request's own tenant transaction, not beside it. `AuditInterceptor` is a global `APP_INTERCEPTOR` that records every mutating request (`POST`/`PUT`/`PATCH`/`DELETE`) to `AuditEvent`: actor, action, target, a computed `{field: {before, after}}` diff, using the same `tenantTx` the request's handler is writing through. That buys two things for free: the audit row shares the mutation's atomicity (a write and its audit row commit or roll back together, nothing to keep in sync by hand), and it shares RLS context (an audit interceptor literally cannot write into another tenant's log, by the same mechanism that protects everything else). It's deliberately best-effort: an audit-write failure gets logged and swallowed, never allowed to fail or mask the original request's result. It has two known blind spots by construction, not oversight — a `RolesGuard` rejection never reaches an interceptor at all in Nest's pipeline, so denied attempts show up in ordinary request logs, not here; and signup writes its own `audit.signup` row by hand, since no tenant transaction exists yet at the point a tenant is first created.
 
-Running `prisma migrate diff --from-config-datasource --to-schema=prisma/schema.prisma
---script` against the database always reports a `DropIndex` on
-`PolicyChunk_embedding_idx` with no corresponding re-create, plus a churn-style
-drop-and-recreate of several unrelated foreign keys (`AuditEvent`,
-`EvidenceClassification`, `PolicyDocument`, `PolicyChunk`, `GapAnalysisRun`,
-`GapAnalysisResult`) with byte-identical `ON DELETE` clauses. These are two
-different things:
+## Lessons learned (the annoying kind)
 
-- The **index drop** is benign and permanent: `embedding` is declared
-  `Unsupported("vector(384)")` because Prisma has no native vector type, so
-  `schema.prisma` cannot express an `ivfflat` index at all. The diff engine sees
-  an index in the database that the target schema has no way to represent and
-  always proposes dropping it. Never accept that half of the diff — it has no
-  corresponding "add" to restore the index, since Prisma can't generate one.
-- The **foreign-key churn is real, low-severity drift**, not a tooling artifact:
-  every hand-written `CREATE TABLE`/`ADD CONSTRAINT` for those foreign keys
-  specifies `ON DELETE` but omits `ON UPDATE`, leaving Postgres's default
-  (`NO ACTION`) in place, while `schema.prisma`'s relations specify `onDelete`
-  without an explicit `onUpdate`, which makes Prisma default to `onUpdate:
-  Cascade`. The database and the schema genuinely disagree about `ON UPDATE`
-  on eleven foreign keys (none of which matter in practice, since none of the
-  referenced columns are primary keys that are ever updated). Left alone, a
-  future `prisma migrate dev` could turn this into a real migration that drops
-  and recreates all eleven constraints — each drop taking a lock — for no
-  functional benefit. Worth a deliberate follow-up (most likely: add explicit
-  `onUpdate: Cascade` or `onUpdate: NoAction` to the affected relations in
-  `schema.prisma` to match whichever behavior is actually intended, so the diff
-  clears without touching the database at all) but not fixed here.
+A few bugs worth a line each, because none of them were obvious from the symptom:
+
+- **Login failing right after signup, only when email case differed.** Reported as "same exact credentials, wrong password." Root cause had nothing to do with bcrypt or the RLS changes that had just landed on `User`, the obvious suspect. `User.email` had no case normalization anywhere, and Postgres text equality is case-sensitive, so `Owner@x.test` stored at signup and `owner@x.test` typed at login were just two different strings. Fixed at the DTO boundary (`@Transform` trim+lowercase) *and* independently at the schema (`CHECK (email = lower(email))`), so no future caller, whether a script or another endpoint, can reintroduce it either. Chasing it down surfaced a second, unrelated bug: none of the e2e tests were actually running through the app's real `ValidationPipe`/CORS setup, because every e2e spec built its Nest app by hand and skipped `main.ts`'s `bootstrap()` entirely. DTO validation had been silently inert in every e2e test in the project up to that point, passing for the wrong reason.
+- **`nest build` silently producing an empty `dist/`.** `deleteOutDir` wiped `dist/` before every build, but tsc's incremental build cache lived *outside* `dist/`. On a second build, tsc trusted its still-intact cache, decided nothing changed, and skipped recompiling, except the `dist/` that cache described no longer existed. Exit code 0, zero files written, no error anywhere. Fixed by moving the cache file inside `dist/` so it always gets wiped together with the output it describes.
+- **`X-Tenant-Slug` itself** exists because of a bug that looked like a token problem: `/auth/me` 403'd unconditionally from the web app with a demonstrably valid token, because Host-based resolution can never see a tenant on a browser request in the first place. Diagnosing it also surfaced two more browser-only bugs no unit test caught: CORS only allowed the exact `localhost:3000` origin, so every tenant subdomain failed preflight before reaching the app, and Chrome's HTML `pattern` attribute parses under Unicode-set regex semantics, where an unescaped trailing hyphen in a character class throws instead of matching. That silently broke the signup form's slug input in exactly one browser.
+- **Deploying to Render produced a build failure that never happens locally**, for a similar reason to the `dist/` bug above. `apps/api`'s `build` script was just `nest build`, with no `prisma generate` anywhere in the chain. Locally that's invisible. The generated client has been sitting in `node_modules/@prisma/client` since the last time anyone ran `npm install` on this machine, so nothing forces regeneration. Render's build container starts from nothing, so the client was a stub: every Prisma-generated export (`Role`, `TaskStatus`, even `PrismaClient`'s own `$connect`/`$disconnect`) was missing, roughly 37 TypeScript errors. I reproduced it locally first, by deleting the generated client and rerunning the old build to get the identical error signature, then fixed it by making `build` run `prisma generate && nest build`.
+- **Deploying `apps/web` to Vercel hit a real monorepo gap**, not a config typo. Vercel's CLI only uploads whatever directory you deploy *from*. Linking and deploying from inside `apps/web` uploaded exactly that directory: 37 files, no `packages/shared`, no way for the install step's `cd ../..` to reach anything real. The fix wasn't the dashboard's "Root Directory" setting, since nothing in the CLI sets that non-interactively; it was a `vercel.json` at the *repo root*, deploying from there, with explicit `framework`/`buildCommand`/`outputDirectory` fields standing in for the auto-detection that only works when the app lives at the deployment root.
+
+## What I'd do differently / next steps
+
+1. **Reverse proxy for tenant resolution.** Replace the `X-Tenant-Slug` client-supplied fallback with a proxy that terminates the real subdomain and forwards a trusted header. That removes the one place tenant identity still depends on what the client claims, rather than just what it's authorized for.
+2. **Redis-backed rate limiting.** `TenantRateLimitGuard` is an in-memory fixed window, scoped to one process — a known, accepted limit, not a surprise. It doesn't hold across a multi-instance deployment. I'd rather build the shared-state version once it actually matters than guess at it now.
+3. **Revisit the `Tenant`/`User` RLS shape once the product needs more from either table.** Both work today because of what they *are* — `Tenant` has no `tenantId` column to filter on, `User` is a global identity scoped only through `Membership` — but that also means their policies are structurally different from every other table's, and easy to get subtly wrong if a future column or endpoint assumes the standard `tenantId`-column shape. Worth a deliberate second look before either table grows new tenant-facing surface area.
+4. **Replace the hand-rolled root `vercel.json` with a real Root Directory setting.** It works, and it's honestly documented above, but it's a workaround for a CLI gap (no non-interactive way to set Root Directory on an existing project), not the intended way to run a Vercel monorepo deploy. Worth revisiting once `vercel link --repo` (currently alpha, and didn't behave non-interactively when I tried it here) stabilizes, or just by setting it once by hand in the dashboard.
+
+## Local setup
+
+```bash
+npm install
+npm run build -w packages/shared
+
+# apps/api/.env (gitignored) needs at minimum:
+#   DATABASE_URL / DATABASE_URL_UNPOOLED   (Neon connection strings)
+#   APP_RUNTIME_DATABASE_URL               (app_runtime role, RLS-scoped)
+#   JWT_SECRET
+#   GEMINI_API_KEY, GROQ_API_KEY
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_ENDPOINT_URL_S3 / AWS_REGION
+#     (Neon Object Storage, S3-compatible)
+#   WEB_ORIGIN
+
+npm run dev   # apps/api on :3001, apps/web on :3000, together
+```
+
+Visit a tenant subdomain locally, e.g. `acme.localhost:3000`. Each app also runs standalone (`npm run dev -w apps/api` / `-w apps/web`). Full test suite: `npm test` (unit) and the e2e specs under `apps/api/test/` (Prisma migrations run against a real Neon branch, no mocked database).

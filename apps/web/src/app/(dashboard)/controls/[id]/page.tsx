@@ -39,11 +39,13 @@ function RetryButton({
   label,
   controlId,
   evidenceId,
+  isDemoTenant,
   onDone,
 }: {
   label: string;
   controlId: string;
   evidenceId: string;
+  isDemoTenant: boolean;
   onDone: () => void;
 }) {
   const { token } = useAuth();
@@ -68,12 +70,18 @@ function RetryButton({
     <div className="mt-1.5">
       <button
         type="button"
-        disabled={retrying}
+        disabled={retrying || isDemoTenant}
+        title={isDemoTenant ? 'Disabled on the demo tenant' : undefined}
         onClick={handleRetry}
         className="cursor-pointer text-[12px] font-medium text-ink underline decoration-rule underline-offset-2 hover:decoration-ink disabled:cursor-not-allowed disabled:opacity-50"
       >
         {retrying ? 'Classifying…' : label}
       </button>
+      {isDemoTenant && (
+        <p className="mt-1 text-[12px] text-ink-muted">
+          Disabled on the public demo tenant, so one visitor can&apos;t use up the next one&apos;s example.
+        </p>
+      )}
       {error && <p className="mt-1 text-[12px] text-exception">{error}</p>}
     </div>
   );
@@ -101,11 +109,13 @@ function ClassificationPanel({
   controlId,
   evidence,
   canReview,
+  isDemoTenant,
   onReviewed,
 }: {
   controlId: string;
   evidence: Evidence;
   canReview: boolean;
+  isDemoTenant: boolean;
   onReviewed: () => void;
 }) {
   const { token } = useAuth();
@@ -121,6 +131,7 @@ function ClassificationPanel({
             label="Classify now"
             controlId={controlId}
             evidenceId={evidence.id}
+            isDemoTenant={isDemoTenant}
             onDone={onReviewed}
           />
         )}
@@ -140,6 +151,7 @@ function ClassificationPanel({
             label="Retry classification"
             controlId={controlId}
             evidenceId={evidence.id}
+            isDemoTenant={isDemoTenant}
             onDone={onReviewed}
           />
         )}
@@ -345,6 +357,7 @@ export default function ControlDetailPage() {
                   controlId={id}
                   evidence={row}
                   canReview={Boolean(me && CAN_REVIEW_CLASSIFICATION.has(me.role))}
+                  isDemoTenant={Boolean(me?.isDemoTenant)}
                   onReviewed={refresh}
                 />
               </div>
@@ -356,13 +369,20 @@ export default function ControlDetailPage() {
       {me && CAN_UPLOAD.has(me.role) && (
         <section className="mb-8 border-t border-rule pt-5">
           <h2 className="mb-3 text-[13px] font-medium text-ink-muted">Upload evidence</h2>
+          {me.isDemoTenant && (
+            <p className="mb-3 text-[13px] text-ink-muted">
+              Uploading is disabled on the public demo tenant, so one visitor can&apos;t change what the next one
+              sees.
+            </p>
+          )}
           <form onSubmit={handleUpload}>
             <div className="mb-4">
               <input
                 type="file"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 required
-                className="block w-full text-[13px] text-ink-muted file:mr-3 file:cursor-pointer file:rounded-sm file:border file:border-rule file:bg-paper-raised file:px-3 file:py-1.5 file:text-[13px] file:text-ink hover:file:border-ink-muted/50"
+                disabled={me.isDemoTenant}
+                className="block w-full text-[13px] text-ink-muted file:mr-3 file:cursor-pointer file:rounded-sm file:border file:border-rule file:bg-paper-raised file:px-3 file:py-1.5 file:text-[13px] file:text-ink hover:file:border-ink-muted/50 disabled:opacity-50"
               />
             </div>
             <Field
@@ -370,8 +390,14 @@ export default function ControlDetailPage() {
               placeholder="Optional"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              disabled={me.isDemoTenant}
             />
-            <Button type="submit" disabled={uploading || !file} className="w-auto">
+            <Button
+              type="submit"
+              disabled={uploading || !file || me.isDemoTenant}
+              title={me.isDemoTenant ? 'Disabled on the demo tenant' : undefined}
+              className="w-auto"
+            >
               {uploading ? (
                 <>
                   <Spinner className="mr-2" />

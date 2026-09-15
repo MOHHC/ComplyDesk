@@ -38,6 +38,10 @@ export interface MeResponse {
   tenantId: string;
   userId: string;
   role: Role;
+  /** True only for the public "demo" tenant at demo.complydesk.online —
+   * drives the in-app "About this demo" banner and, server-side,
+   * DemoReadOnlyGuard's blocking of uploads and AI runs. */
+  isDemoTenant: boolean;
 }
 
 /** One workspace a given email belongs to, as returned by the
