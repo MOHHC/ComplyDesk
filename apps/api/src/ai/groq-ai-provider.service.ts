@@ -133,14 +133,21 @@ export class GroqAiProvider {
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      return this.coverageUnavailable();
+      // status is the one piece of this that actually distinguishes
+      // "try again later" from "this will fail identically every time" —
+      // 429/5xx/timeouts are transient, a 400 (malformed request) is not.
+      // Surfacing it here is what makes that answerable later without
+      // re-deriving it from log files that may not even exist anymore
+      // (see the three call sites of coverageUnavailable() below — this
+      // was previously one generic string no matter which fired).
+      return this.coverageUnavailable(status ? `provider error, status ${status}` : 'provider error');
     }
 
     if (!content) {
       this.logger.error(
         `Groq response for control coverage check had no message content for control ${input.control.code}`,
       );
-      return this.coverageUnavailable();
+      return this.coverageUnavailable('empty response from provider');
     }
     try {
       return JSON.parse(content) as CoverageResult;
@@ -150,11 +157,11 @@ export class GroqAiProvider {
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      return this.coverageUnavailable();
+      return this.coverageUnavailable('malformed response from provider');
     }
   }
 
-  private coverageUnavailable(): CoverageResult {
-    return { covered: false, reasoning: 'coverage check unavailable', citedChunkIndex: null };
+  private coverageUnavailable(cause: string): CoverageResult {
+    return { covered: false, reasoning: `Coverage check unavailable (${cause}). Re-run gap analysis to retry this control.`, citedChunkIndex: null };
   }
 }
