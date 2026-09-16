@@ -1,5 +1,6 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 
@@ -12,6 +13,7 @@ describe('AuthService', () => {
       user: { findUnique: jest.fn() },
       tenant: { findUnique: jest.fn(), create: jest.fn() },
       membership: { create: jest.fn() },
+      invite: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       control: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
       auditEvent: { create: jest.fn().mockResolvedValue(undefined) },
       $queryRaw: jest.fn().mockResolvedValue([{ exists: false }]),
@@ -251,6 +253,149 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: 'nobody@acme.com', password: 'x' } as any),
       ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  // invite_lookup_by_code()'s row shape — see the add_invites migration.
+  const validInviteRow = (overrides: Partial<Record<string, unknown>> = {}) => ({
+    id: 'invite-1',
+    tenant_id: 'tenant-1',
+    tenant_name: 'Acme Inc',
+    tenant_slug: 'acme',
+    role: Role.CONTRIBUTOR,
+    expires_at: new Date(Date.now() + 60_000),
+    used_at: null,
+    ...overrides,
+  });
+
+  describe('getInviteInfo', () => {
+    it('reports a live invite as valid', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValue([validInviteRow()]);
+
+      const result = await service.getInviteInfo('code-1');
+
+      expect(result).toEqual({
+        tenantName: 'Acme Inc',
+        tenantSlug: 'acme',
+        role: Role.CONTRIBUTOR,
+        valid: true,
+        expired: false,
+        used: false,
+      });
+    });
+
+    it('reports why an expired invite is invalid, distinctly from a used one', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValue([validInviteRow({ expires_at: new Date(Date.now() - 1000) })]);
+
+      const result = await service.getInviteInfo('code-1');
+
+      expect(result).toMatchObject({ valid: false, expired: true, used: false });
+    });
+
+    it('reports a redeemed invite as used, not expired', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValue([validInviteRow({ used_at: new Date() })]);
+
+      const result = await service.getInviteInfo('code-1');
+
+      expect(result).toMatchObject({ valid: false, expired: false, used: true });
+    });
+
+    it('throws NotFoundException for a code that matches no invite', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValue([]);
+
+      await expect(service.getInviteInfo('nonexistent')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('acceptInvite', () => {
+    const dto = { code: 'code-1', email: 'new@acme.com', password: 'password123', name: 'New Person' } as any;
+
+    it('joins the invite\'s tenant with the invite\'s role, and marks the invite used', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw
+        .mockResolvedValueOnce([validInviteRow()]) // invite_lookup_by_code
+        .mockResolvedValueOnce([{ exists: false }]); // auth_email_exists
+
+      const result = await service.acceptInvite(dto);
+
+      const contextCall = prisma.$executeRaw.mock.calls[0];
+      expect(contextCall).toContain('tenant-1');
+      const membership = prisma.membership.create.mock.calls[0][0].data;
+      expect(membership).toEqual({ tenantId: 'tenant-1', userId: expect.any(String), role: Role.CONTRIBUTOR });
+      expect(prisma.invite.updateMany).toHaveBeenCalledWith({
+        where: { id: 'invite-1', usedAt: null },
+        data: { usedAt: expect.any(Date), usedById: expect.any(String) },
+      });
+      expect(result).toEqual({ accessToken: 'signed-token', tenantId: 'tenant-1', tenantSlug: 'acme' });
+    });
+
+    it('writes its own audit event, the same as signup', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValueOnce([validInviteRow()]).mockResolvedValueOnce([{ exists: false }]);
+
+      await service.acceptInvite(dto);
+
+      expect(prisma.auditEvent.create.mock.calls[0][0].data).toMatchObject({
+        tenantId: 'tenant-1',
+        action: 'auth.acceptInvite',
+        targetType: 'Invite',
+        targetId: 'invite-1',
+        statusCode: 201,
+      });
+    });
+
+    it('rejects an unknown invite code', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValueOnce([]);
+
+      await expect(service.acceptInvite(dto)).rejects.toThrow(NotFoundException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects an already-used invite before ever opening a transaction', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValueOnce([validInviteRow({ used_at: new Date() })]);
+
+      await expect(service.acceptInvite(dto)).rejects.toThrow(ConflictException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects an expired invite', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValueOnce([validInviteRow({ expires_at: new Date(Date.now() - 1000) })]);
+
+      await expect(service.acceptInvite(dto)).rejects.toThrow(ConflictException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the email is already registered', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValueOnce([validInviteRow()]).mockResolvedValueOnce([{ exists: true }]);
+
+      await expect(service.acceptInvite(dto)).rejects.toThrow(ConflictException);
+    });
+
+    it('rolls back and rejects when two requests redeem the same code concurrently', async () => {
+      // Both requests pass the advisory used_at check above; the
+      // conditional update inside the transaction is what actually
+      // decides — see acceptInvite's own comment on why.
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValueOnce([validInviteRow()]).mockResolvedValueOnce([{ exists: false }]);
+      prisma.invite.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.acceptInvite(dto)).rejects.toThrow(ConflictException);
+    });
+
+    it('maps a concurrent duplicate-email insert to a 409 rather than a 500', async () => {
+      const { service, prisma } = buildService();
+      prisma.$queryRaw.mockResolvedValueOnce([validInviteRow()]).mockResolvedValueOnce([{ exists: false }]);
+      prisma.$transaction.mockRejectedValue({ code: '23505' });
+
+      await expect(service.acceptInvite(dto)).rejects.toThrow(ConflictException);
     });
   });
 });

@@ -18,6 +18,7 @@ import { MembersModule } from './members/members.module';
 import { AuditModule } from './audit/audit.module';
 import { PolicyDocumentsModule } from './policy-documents/policy-documents.module';
 import { GapAnalysisModule } from './gap-analysis/gap-analysis.module';
+import { InvitesModule } from './invites/invites.module';
 
 const GAP_ANALYSIS_RUN_ROUTE = { path: 'gap-analysis/run', method: RequestMethod.POST };
 const POLICY_DOCUMENTS_UPLOAD_ROUTE = { path: 'policy-documents', method: RequestMethod.POST };
@@ -38,6 +39,7 @@ const EVIDENCE_RETRY_CLASSIFICATION_ROUTE = {
     TasksModule,
     DashboardModule,
     MembersModule,
+    InvitesModule,
     // Registers AuditInterceptor globally (APP_INTERCEPTOR) so every
     // controller gets audit coverage without remembering to add it.
     AuditModule,

@@ -43,6 +43,7 @@ describe('RLS tenant isolation (e2e)', () => {
   let gapRunA1: { id: string };
   let gapRunB1: { id: string };
   let gapResultA1: { id: string };
+  let inviteA1: { id: string; code: string };
 
   /** Runs `fn` inside a transaction scoped to `tenantId` via the same
    * SET LOCAL mechanism TenantTransactionMiddleware uses in the app. */
@@ -222,6 +223,18 @@ describe('RLS tenant isolation (e2e)', () => {
           controlId: controlA1.id,
           covered: false,
           reasoning: 'seed',
+        },
+      }),
+    );
+
+    inviteA1 = await asTenant(tenantA.id, (tx) =>
+      tx.invite.create({
+        data: {
+          tenantId: tenantA.id,
+          code: `rls-fixture-${suffix}`,
+          role: 'CONTRIBUTOR',
+          createdById: userA.id,
+          expiresAt: new Date(Date.now() + 60_000),
         },
       }),
     );
@@ -740,6 +753,72 @@ describe('RLS tenant isolation (e2e)', () => {
         const leaked = await owner.gapAnalysisResult.findFirst({ where: { runId: gapRunB1.id } });
         expect(leaked).toBeNull();
       });
+    });
+  });
+
+  describe('Invite', () => {
+    it('tenant B cannot read tenant A invites', async () => {
+      await asTenant(tenantB.id, async (tx) => {
+        expect(await tx.invite.findUnique({ where: { id: inviteA1.id } })).toBeNull();
+      });
+    });
+
+    it('tenant B cannot update or delete a tenant A invite', async () => {
+      await asTenant(tenantB.id, async (tx) => {
+        await expect(
+          tx.invite.update({ where: { id: inviteA1.id }, data: { role: 'OWNER' } }),
+        ).rejects.toThrow();
+        await expect(tx.invite.delete({ where: { id: inviteA1.id } })).rejects.toThrow();
+      });
+
+      const stillThere = await owner.invite.findUniqueOrThrow({ where: { id: inviteA1.id } });
+      expect(stillThere.role).toBe('CONTRIBUTOR');
+    });
+
+    it('tenant A can read its own invite (positive control)', async () => {
+      await asTenant(tenantA.id, async (tx) => {
+        expect(await tx.invite.findUnique({ where: { id: inviteA1.id } })).not.toBeNull();
+      });
+    });
+
+    it('rejects a forged Invite claiming tenant A while tenant B is inside its own context', async () => {
+      await expect(
+        asTenant(tenantB.id, (tx) =>
+          tx.invite.create({
+            data: {
+              tenantId: tenantA.id,
+              code: `forged-${suffix}`,
+              role: 'OWNER',
+              createdById: userB.id,
+              expiresAt: new Date(Date.now() + 60_000),
+            },
+          }),
+        ),
+      ).rejects.toThrow(/row-level security/i);
+
+      const leaked = await owner.invite.findFirst({ where: { code: `forged-${suffix}` } });
+      expect(leaked).toBeNull();
+    });
+
+    // The whole reason invite_lookup_by_code() is SECURITY DEFINER: the
+    // person redeeming an invite has no tenant context at all — not
+    // tenant A's, not tenant B's, none — since they aren't a member of
+    // anything yet. A plain tenant_isolation-scoped query would throw on
+    // the missing app.tenant_id; this function is what makes the lookup
+    // work anyway, deliberately, without weakening the table's own RLS.
+    it('invite_lookup_by_code() resolves a real invite with no tenant context set at all', async () => {
+      const rows = await runtime.$queryRaw<{ id: string; tenant_id: string; role: string }[]>`
+        SELECT * FROM invite_lookup_by_code(${inviteA1.code})
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: inviteA1.id, tenant_id: tenantA.id, role: 'CONTRIBUTOR' });
+    });
+
+    it('invite_lookup_by_code() returns no rows for an unknown code, rather than throwing', async () => {
+      const rows = await runtime.$queryRaw<unknown[]>`
+        SELECT * FROM invite_lookup_by_code(${'no-such-code'})
+      `;
+      expect(rows).toHaveLength(0);
     });
   });
 });

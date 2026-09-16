@@ -64,9 +64,11 @@ export async function createTenant(server: unknown, suffix: string): Promise<Ten
 }
 
 /** Adds a member with a given role directly via the owner connection —
- * legitimate fixture setup (there's no invite endpoint in this phase),
- * not a way to sidestep the authorization surface: every test still logs
- * in / calls the API as this user through the real guards. */
+ * faster fixture setup than round-tripping through the real invite flow
+ * for every test that just needs *a* member of some role already in
+ * place, not a way to sidestep the authorization surface: every test
+ * still logs in / calls the API as this user through the real guards.
+ * invites.e2e-spec.ts exercises the invite flow itself end to end. */
 export async function addMember(
   tenantId: string,
   role: Role,
