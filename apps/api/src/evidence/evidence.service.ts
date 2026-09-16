@@ -6,6 +6,14 @@ import { ObjectStorageService } from '../storage/object-storage.service';
 import { EvidenceClassificationService } from './evidence-classification.service';
 import { TenantRateLimitGuard } from '../rate-limit/tenant-rate-limit.guard';
 
+/**
+ * No per-user ownership check on upload (see EvidenceController): unlike
+ * Task, Control has no assignee — evidence is tenant-wide, not scoped to
+ * an individual. Any CONTRIBUTOR may upload evidence for any control in
+ * the tenant. This is the confirmed, intended RBAC model, not a missing
+ * "only your own work" restriction — don't add one without a design
+ * change to controls/evidence first.
+ */
 @Injectable()
 export class EvidenceService {
   private readonly logger = new Logger(EvidenceService.name);

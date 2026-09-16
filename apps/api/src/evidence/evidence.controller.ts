@@ -35,6 +35,8 @@ export class EvidenceController {
     private readonly classification: EvidenceClassificationService,
   ) {}
 
+  // Any CONTRIBUTOR, any control — controls/evidence are tenant-wide with
+  // no assignee, unlike Task. See EvidenceService for the full note.
   @Post()
   @Roles(Role.OWNER, Role.ADMIN, Role.CONTRIBUTOR)
   @UseGuards(DemoReadOnlyGuard)

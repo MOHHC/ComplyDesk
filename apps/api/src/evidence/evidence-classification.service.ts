@@ -22,6 +22,11 @@ const MAX_STORED_ERROR_MESSAGE_LENGTH = 500;
  * ran", and no way to retry either. Every attempt — from upload or from
  * retry() — now always ends in a persisted row via persistOutcome(),
  * tagged COMPLETED or FAILED, so the two are never confused again.
+ *
+ * review() and retry() also carry no per-user ownership check, for the
+ * same reason as EvidenceService.upload: controls/evidence are tenant-wide
+ * with no assignee concept, so any CONTRIBUTOR may act on any control's
+ * evidence. Confirmed intended, not a missing "own work only" check.
  */
 @Injectable()
 export class EvidenceClassificationService {
