@@ -17,6 +17,14 @@ import { WorkspaceLookupThrottleGuard } from './workspace-lookup-throttle.guard'
  * without needing to import anything, the same pattern PrismaModule and
  * SeedControlsModule already use.
  */
+// The fallback only exists so local dev and tests run without setup. It
+// is in a public repository, so anyone could sign tokens with it: in
+// production a missing JWT_SECRET must stop the API from booting rather
+// than quietly fall back.
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET must be set in production');
+}
+
 @Global()
 @Module({
   imports: [
