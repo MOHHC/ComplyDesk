@@ -248,6 +248,9 @@ export default function ControlDetailPage() {
   const [notes, setNotes] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
+  // Bumped after a successful upload to remount the file input: clearing
+  // `file` alone leaves the old filename showing next to a disabled button.
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const [assigneeId, setAssigneeId] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
@@ -291,6 +294,7 @@ export default function ControlDetailPage() {
   // Runs once the upload checklist has ticked off.
   function finishUpload() {
     setFile(null);
+    setFileInputKey((k) => k + 1);
     setNotes('');
     setUploaded(false);
     setUploading(false);
@@ -396,6 +400,7 @@ export default function ControlDetailPage() {
           <form onSubmit={handleUpload}>
             <div className="mb-4">
               <input
+                key={fileInputKey}
                 type="file"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 required

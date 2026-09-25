@@ -40,6 +40,9 @@ export default function PolicyDocumentsPage() {
   const [uploading, setUploading] = useState(false);
   // Set on success; the list refreshes once the checklist has finished.
   const [uploaded, setUploaded] = useState(false);
+  // Bumped after a successful upload to remount the file input: clearing
+  // `file` alone leaves the old filename showing next to a disabled button.
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const refresh = useCallback(() => {
     if (!token) return;
@@ -70,6 +73,7 @@ export default function PolicyDocumentsPage() {
 
   function finishUpload() {
     setFile(null);
+    setFileInputKey((k) => k + 1);
     setUploaded(false);
     setUploading(false);
     refresh();
@@ -95,6 +99,7 @@ export default function PolicyDocumentsPage() {
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input
+              key={fileInputKey}
               type="file"
               accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
