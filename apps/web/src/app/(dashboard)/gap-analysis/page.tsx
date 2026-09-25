@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/useAuth';
 import { getLatestGapAnalysis, runGapAnalysis } from '@/lib/api';
 import { Badge, Button, Notice, Spinner } from '@/components/ui';
 import { RegisterEmpty, RegisterHeader } from '@/components/register';
+import { ProgressChecklist } from '@/components/ProgressChecklist';
 
 // @Roles(OWNER, ADMIN) on POST /gap-analysis/run — same boundary as
 // every gated action on this page, hidden client-side as a UX nicety.
@@ -16,6 +17,9 @@ export default function GapAnalysisPage() {
   const [report, setReport] = useState<GapAnalysisReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  // The finished run, held back until the progress checklist has ticked
+  // off — see finishRun.
+  const [pendingReport, setPendingReport] = useState<GapAnalysisReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -36,13 +40,17 @@ export default function GapAnalysisPage() {
     setRunning(true);
     setError(null);
     try {
-      const result = await runGapAnalysis(token);
-      setReport(result);
+      setPendingReport(await runGapAnalysis(token));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gap analysis run failed');
-    } finally {
       setRunning(false);
     }
+  }
+
+  function finishRun() {
+    setReport(pendingReport);
+    setPendingReport(null);
+    setRunning(false);
   }
 
   const sortedResults = useMemo(
@@ -90,6 +98,21 @@ export default function GapAnalysisPage() {
               'Run gap analysis'
             )}
           </Button>
+          {running && (
+            <div className="mt-5 max-w-md">
+              <ProgressChecklist
+                steps={[
+                  'Loading your controls',
+                  'Matching each control to your policy documents',
+                  'Checking coverage, control by control',
+                  'Saving the report',
+                ]}
+                stepMs={2500}
+                done={pendingReport !== null}
+                onFinished={finishRun}
+              />
+            </div>
+          )}
         </div>
       )}
 

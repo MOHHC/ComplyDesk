@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { parseSubdomain } from '@complydesk/shared';
 import { WorkspaceFinder } from '@/components/WorkspaceFinder';
 import { AuthShell, Button, Field, Notice, TextLink } from '@/components/ui';
+import { ProgressChecklist } from '@/components/ProgressChecklist';
 import { login } from '@/lib/api';
 import { storeToken } from '@/lib/session';
 
@@ -17,6 +18,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [prefilledDemo, setPrefilledDemo] = useState(false);
 
@@ -46,7 +48,9 @@ export default function LoginPage() {
     try {
       const { accessToken } = await login({ email, password });
       storeToken(accessToken);
-      router.push('/dashboard');
+      // Navigation waits for the checklist to finish (onFinished below).
+      setSignedIn(true);
+      router.prefetch('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
       setSubmitting(false);
@@ -61,6 +65,21 @@ export default function LoginPage() {
   // so a form here can only ever fail — find the workspace first.
   if (!onTenantSubdomain) {
     return <WorkspaceFinder />;
+  }
+
+  if (submitting) {
+    return (
+      <AuthShell title="Signing in" intro={workspace ? `Opening ${workspace}.` : undefined}>
+        <ProgressChecklist
+          steps={['Finding your account', 'Verifying your password', 'Starting a secure session']}
+          stepMs={450}
+          done={signedIn}
+          onFinished={() => router.push('/dashboard')}
+          readyTitle="Signed in"
+          readyDetail="Opening your dashboard…"
+        />
+      </AuthShell>
+    );
   }
 
   return (
@@ -115,9 +134,7 @@ export default function LoginPage() {
             <Notice>{error}</Notice>
           </div>
         )}
-        <Button type="submit" disabled={submitting}>
-          {submitting ? 'Signing in…' : 'Sign in'}
-        </Button>
+        <Button type="submit">Sign in</Button>
       </form>
     </AuthShell>
   );

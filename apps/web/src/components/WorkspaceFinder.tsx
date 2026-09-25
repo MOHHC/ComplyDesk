@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { WorkspaceSummary } from '@complydesk/shared';
-import { AuthShell, Button, Field, Notice, TextLink } from '@/components/ui';
+import { AuthShell, Button, Field, Notice, Spinner, TextLink } from '@/components/ui';
 import { findWorkspaces } from '@/lib/api';
 import { buildWorkspaceUrl } from '@/lib/session';
 
@@ -63,7 +63,14 @@ export function WorkspaceFinder() {
           required
         />
         <Button type="submit" disabled={submitting}>
-          {submitting ? 'Looking up…' : 'Continue'}
+          {submitting ? (
+            <>
+              <Spinner className="mr-2" />
+              Finding your workspace…
+            </>
+          ) : (
+            'Continue'
+          )}
         </Button>
       </form>
 

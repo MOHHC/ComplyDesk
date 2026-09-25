@@ -15,6 +15,7 @@ import {
 } from '@/lib/api';
 import { Badge, Button, Field, Notice, Spinner } from '@/components/ui';
 import { RegisterEmpty, RegisterHeader } from '@/components/register';
+import { ProgressChecklist } from '@/components/ProgressChecklist';
 
 // Roles allowed to upload evidence — kept in sync with the API's own
 // @Roles(OWNER, ADMIN, CONTRIBUTOR) on POST /controls/:id/evidence. The
@@ -246,6 +247,7 @@ export default function ControlDetailPage() {
   const [file, setFile] = useState<File | null>(null);
   const [notes, setNotes] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploaded, setUploaded] = useState(false);
 
   const [assigneeId, setAssigneeId] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
@@ -279,14 +281,20 @@ export default function ControlDetailPage() {
     setError(null);
     try {
       await uploadEvidence(token, id, file, notes);
-      setFile(null);
-      setNotes('');
-      refresh();
+      setUploaded(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
       setUploading(false);
     }
+  }
+
+  // Runs once the upload checklist has ticked off.
+  function finishUpload() {
+    setFile(null);
+    setNotes('');
+    setUploaded(false);
+    setUploading(false);
+    refresh();
   }
 
   async function handleAssign(e: React.FormEvent) {
@@ -417,6 +425,20 @@ export default function ControlDetailPage() {
                 'Upload'
               )}
             </Button>
+            {uploading && file && (
+              <div className="mt-5 max-w-md">
+                <ProgressChecklist
+                  steps={[
+                    `Uploading ${file.name}`,
+                    'Storing it securely',
+                    `Checking it against ${control.code} with AI`,
+                  ]}
+                  stepMs={900}
+                  done={uploaded}
+                  onFinished={finishUpload}
+                />
+              </div>
+            )}
           </form>
         </section>
       )}

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { AuthShell, Button, Field, Notice, TextLink } from '@/components/ui';
+import { ProgressChecklist } from '@/components/ProgressChecklist';
 import { signup } from '@/lib/api';
 import { buildHandoffUrl } from '@/lib/session';
 
@@ -15,6 +16,11 @@ export default function SignupPage() {
   });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Set once signup succeeds; the navigation itself waits for the
+  // ProgressChecklist to finish (see handleFinished).
+  const [created, setCreated] = useState<{ accessToken: string; tenantSlug: string } | null>(
+    null,
+  );
 
   function update(field: keyof typeof form) {
     return (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -26,31 +32,60 @@ export default function SignupPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const { accessToken, tenantSlug } = await signup(form);
-      // Move to the new workspace's own subdomain rather than staying
-      // put. Everything after signup is tenant-scoped — login, /auth/me,
-      // every API call — and the tenant is resolved from the subdomain.
-      // Staying on the current host leaves the browser pointed at either
-      // no tenant (root domain) or, worse, a *different* workspace the
-      // new user isn't a member of, which produces a 403 on /auth/me and
-      // a 401 on any later login, both of which read as "wrong password".
-      //
-      // The slug comes from the *response*, never from form.tenantSlug:
-      // the server normalizes it (and could later deduplicate it), so the
-      // workspace that actually exists is the one it reports back.
-      // Trusting the submitted value would aim the browser at a subdomain
-      // resolving to a different tenant, or to none.
-      //
-      // A full page navigation, not router.push: this crosses an origin
-      // boundary, which the Next client-side router cannot do.
-      window.location.href = buildHandoffUrl(tenantSlug, '/dashboard', accessToken);
+      setCreated(await signup(form));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
       setSubmitting(false);
     }
   }
 
+  const handleFinished = useCallback(() => {
+    if (!created) return;
+    const { accessToken, tenantSlug } = created;
+    // Move to the new workspace's own subdomain rather than staying
+    // put. Everything after signup is tenant-scoped — login, /auth/me,
+    // every API call — and the tenant is resolved from the subdomain.
+    // Staying on the current host leaves the browser pointed at either
+    // no tenant (root domain) or, worse, a *different* workspace the
+    // new user isn't a member of, which produces a 403 on /auth/me and
+    // a 401 on any later login, both of which read as "wrong password".
+    //
+    // The slug comes from the *response*, never from form.tenantSlug:
+    // the server normalizes it (and could later deduplicate it), so the
+    // workspace that actually exists is the one it reports back.
+    // Trusting the submitted value would aim the browser at a subdomain
+    // resolving to a different tenant, or to none.
+    //
+    // A full page navigation, not router.push: this crosses an origin
+    // boundary, which the Next client-side router cannot do.
+    window.location.href = buildHandoffUrl(tenantSlug, '/dashboard', accessToken);
+  }, [created]);
+
   const slugPreview = form.tenantSlug.trim().toLowerCase();
+
+  if (submitting) {
+    return (
+      <AuthShell
+        title="Creating your workspace"
+        intro={`Setting up ${form.tenantName.trim() || 'your workspace'}. This takes a few seconds.`}
+      >
+        <ProgressChecklist
+          steps={[
+            'Checking your email and workspace URL',
+            'Securing your password',
+            'Isolating your workspace data',
+            'Setting you up as the owner',
+            'Loading 18 baseline controls',
+            `Preparing ${slugPreview}`,
+          ]}
+          done={created !== null}
+          onFinished={handleFinished}
+          readyTitle="Workspace ready"
+          readyDetail={`Taking you to ${created?.tenantSlug ?? slugPreview}…`}
+        />
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell
@@ -128,9 +163,7 @@ export default function SignupPage() {
             <Notice>{error}</Notice>
           </div>
         )}
-        <Button type="submit" disabled={submitting}>
-          {submitting ? 'Creating workspace…' : 'Create workspace'}
-        </Button>
+        <Button type="submit">Create workspace</Button>
       </form>
     </AuthShell>
   );

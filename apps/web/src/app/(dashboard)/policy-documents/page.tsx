@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/useAuth';
 import { listPolicyDocuments, uploadPolicyDocument } from '@/lib/api';
 import { Badge, Button, Notice, Spinner } from '@/components/ui';
 import { RegisterEmpty, RegisterHeader, RegisterSkeletonRows } from '@/components/register';
+import { ProgressChecklist } from '@/components/ProgressChecklist';
 
 // @Roles(OWNER, ADMIN, CONTRIBUTOR) on POST /policy-documents — same
 // boundary as evidence upload, hidden client-side as a UX nicety only.
@@ -37,6 +38,8 @@ export default function PolicyDocumentsPage() {
 
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Set on success; the list refreshes once the checklist has finished.
+  const [uploaded, setUploaded] = useState(false);
 
   const refresh = useCallback(() => {
     if (!token) return;
@@ -58,13 +61,18 @@ export default function PolicyDocumentsPage() {
     setError(null);
     try {
       await uploadPolicyDocument(token, file);
-      setFile(null);
-      refresh();
+      setUploaded(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
       setUploading(false);
     }
+  }
+
+  function finishUpload() {
+    setFile(null);
+    setUploaded(false);
+    setUploading(false);
+    refresh();
   }
 
   if (!ready) return null;
@@ -110,6 +118,21 @@ export default function PolicyDocumentsPage() {
               )}
             </Button>
           </div>
+          {uploading && file && (
+            <div className="mt-5 max-w-md">
+              <ProgressChecklist
+                steps={[
+                  `Uploading ${file.name}`,
+                  'Extracting the text',
+                  'Splitting it into sections',
+                  'Indexing each section for gap analysis',
+                ]}
+                stepMs={900}
+                done={uploaded}
+                onFinished={finishUpload}
+              />
+            </div>
+          )}
         </form>
       )}
 

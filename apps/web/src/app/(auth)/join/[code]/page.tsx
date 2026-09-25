@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type { InviteInfo } from '@complydesk/shared';
 import { AuthShell, Button, Field, Notice, TextLink } from '@/components/ui';
+import { ProgressChecklist } from '@/components/ProgressChecklist';
 import { acceptInvite, getInviteInfo } from '@/lib/api';
 import { buildHandoffUrl } from '@/lib/session';
 
@@ -23,6 +24,7 @@ export default function JoinPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [joined, setJoined] = useState<{ accessToken: string; tenantSlug: string } | null>(null);
 
   useEffect(() => {
     getInviteInfo(code)
@@ -40,17 +42,23 @@ export default function JoinPage() {
     setSubmitError(null);
     setSubmitting(true);
     try {
-      const { accessToken, tenantSlug } = await acceptInvite({ code, ...form });
-      // Same reasoning as signup's own redirect: the tenant is resolved
-      // from the subdomain everywhere past this point, and the slug
-      // comes from the response rather than anything client-known, since
-      // the server is the one source of truth for which workspace this
-      // invite actually belongs to.
-      window.location.href = buildHandoffUrl(tenantSlug, '/dashboard', accessToken);
+      setJoined(await acceptInvite({ code, ...form }));
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Could not join this workspace');
       setSubmitting(false);
     }
+  }
+
+  // Runs once the ProgressChecklist has finished ticking off.
+  function handleFinished() {
+    if (!joined) return;
+    const { accessToken, tenantSlug } = joined;
+    // Same reasoning as signup's own redirect: the tenant is resolved
+    // from the subdomain everywhere past this point, and the slug
+    // comes from the response rather than anything client-known, since
+    // the server is the one source of truth for which workspace this
+    // invite actually belongs to.
+    window.location.href = buildHandoffUrl(tenantSlug, '/dashboard', accessToken);
   }
 
   if (loadError) {
@@ -79,6 +87,25 @@ export default function JoinPage() {
           Ask whoever sent it for a new link, or{' '}
           <TextLink href="/login">find your own workspace</TextLink> if you already have an account.
         </p>
+      </AuthShell>
+    );
+  }
+
+  if (submitting) {
+    return (
+      <AuthShell title={`Joining ${info.tenantName}`}>
+        <ProgressChecklist
+          steps={[
+            'Checking your invite',
+            'Securing your password',
+            'Creating your account',
+            `Adding you as ${info.role.toLowerCase()}`,
+          ]}
+          done={joined !== null}
+          onFinished={handleFinished}
+          readyTitle={`Welcome to ${info.tenantName}`}
+          readyDetail={`Taking you to ${joined?.tenantSlug ?? info.tenantSlug}…`}
+        />
       </AuthShell>
     );
   }
@@ -132,9 +159,7 @@ export default function JoinPage() {
             <Notice>{submitError}</Notice>
           </div>
         )}
-        <Button type="submit" disabled={submitting}>
-          {submitting ? 'Joining…' : `Join ${info.tenantName}`}
-        </Button>
+        <Button type="submit">Join {info.tenantName}</Button>
       </form>
     </AuthShell>
   );

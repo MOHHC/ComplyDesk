@@ -31,7 +31,7 @@ export function AuthShell({
   footer?: React.ReactNode;
 }) {
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-[26rem] flex-col justify-center px-6 py-16">
+    <main className="mx-auto flex min-h-dvh w-full max-w-[26rem] flex-col justify-center px-6 py-10 sm:py-16">
       <div className="mb-8 flex items-baseline justify-between border-b border-rule pb-3">
         <Wordmark />
         <span className="font-mono text-[11px] text-ink-muted">Audit readiness</span>
